@@ -1,3 +1,3 @@
-# llm.c
+# llm.cpp
 
-My custom implementation of large language models (LLMs) in c.
+My custom implementation of large language models (LLMs) in c++.

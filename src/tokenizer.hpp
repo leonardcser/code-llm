@@ -1,10 +1,10 @@
 #pragma once
 
-#include <cstddef>
+#include <stddef.h>
 
 typedef struct {
 
-} Tok;
+} Tokenizer;
 
 // IDEAS:
 // - normalize to ASCII 256
