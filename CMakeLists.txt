@@ -11,9 +11,18 @@ endif()
 
 # Set compiler flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
 
 enable_testing()
+
+# nlohmann/json (v3.12.0)
+include(FetchContent)
+FetchContent_Declare(
+  json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.12.0
+)
+FetchContent_MakeAvailable(json)
 
 # Define entrypoints (executables)
 set(ENTRYPOINTS main)
@@ -33,14 +42,16 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
+    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json)
 endif()
 
 # Create executables for each entrypoint
 foreach(ENTRYPOINT ${ENTRYPOINTS})
     add_executable(${ENTRYPOINT} src/${ENTRYPOINT}.cpp)
     if(LIB_SOURCES)
-        target_link_libraries(${ENTRYPOINT} llm_lib)
+        target_link_libraries(${ENTRYPOINT} PRIVATE llm_lib)
     endif()
+    target_link_libraries(${ENTRYPOINT} PRIVATE nlohmann_json::nlohmann_json)
 endforeach()
 
 # Test executables
@@ -51,8 +62,9 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
     list(APPEND TEST_EXECUTABLES ${TEST_NAME})
     add_executable(${TEST_NAME} ${TEST_SOURCE})
     if(LIB_SOURCES)
-        target_link_libraries(${TEST_NAME} llm_lib)
+        target_link_libraries(${TEST_NAME} PRIVATE llm_lib)
     endif()
+    target_link_libraries(${TEST_NAME} PRIVATE nlohmann_json::nlohmann_json)
     target_compile_options(${TEST_NAME} PRIVATE -DDEBUG_TESTS -Wno-unused-variable)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
