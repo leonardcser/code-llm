@@ -1,22 +1,39 @@
 #include "tokenizer.hpp"
 #include "text.hpp"
+#include <absl/container/flat_hash_map.h>
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <regex>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-using TokenId = uint32_t;
+using tokenizer::TokenId;
 using Word = std::vector<TokenId>;
 using WordList = std::vector<Word>;
-
-using PairCount = std::unordered_map<uint64_t, size_t>;
+using PairCount = absl::flat_hash_map<uint64_t, size_t>;
 using Clock = std::chrono::steady_clock;
 using DurationMs = std::chrono::duration<double, std::milli>;
+
+// Thread-local regex cache to avoid recompilation
+thread_local std::unordered_map<std::string, std::regex> regex_cache;
+
+// Helper function to get thread-local regex
+const std::regex &get_thread_local_regex(const std::string &pattern) {
+    auto it = regex_cache.find(pattern);
+    if (it == regex_cache.end()) {
+        it = regex_cache
+                 .emplace(pattern,
+                          std::regex(pattern, std::regex_constants::optimize))
+                 .first;
+    }
+    return it->second;
+}
 
 // Helper function to split text into words and convert to byte tokens
 WordList tokenize_to_words(const std::string &text,
@@ -28,8 +45,8 @@ WordList tokenize_to_words(const std::string &text,
     };
 
     if (!pattern_str.empty()) {
-        const std::regex pattern(pattern_str, std::regex_constants::optimize);
-        words.reserve(text.length() / 5); // Rough estimate for word count
+        const std::regex &pattern = get_thread_local_regex(pattern_str);
+        words.reserve(text.length() / 3);
 
         std::sregex_iterator iter(text.begin(), text.end(), pattern);
         std::sregex_iterator end;
@@ -53,15 +70,17 @@ WordList tokenize_to_words(const std::string &text,
     }
 
     WordList fallback_words;
-    fallback_words.reserve(text.length() / 6 + 1);
+    fallback_words.reserve(text.length() / 4 + 1);
 
     Word current_word;
-    current_word.reserve(16);
+    current_word.reserve(32); // Larger initial capacity
 
     auto flush_word = [&]() {
         if (!current_word.empty()) {
             fallback_words.emplace_back();
             fallback_words.back().swap(current_word);
+            current_word.clear();
+            current_word.reserve(32);
         }
     };
 
@@ -151,44 +170,68 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     const auto tokenize_start = Clock::now();
     // Split text into words using provided regex pattern
     WordList words = tokenize_to_words(text, pattern);
-    tokenize_time += std::chrono::duration_cast<DurationMs>(Clock::now() -
-                                                            tokenize_start);
+    tokenize_time +=
+        std::chrono::duration_cast<DurationMs>(Clock::now() - tokenize_start);
 
     // Main BPE loop
     DurationMs pair_count_time = DurationMs::zero();
     DurationMs find_best_time = DurationMs::zero();
     DurationMs merge_time = DurationMs::zero();
     size_t iteration_count = 0;
+    size_t pair_reserve_hint = 0;
+    for (const auto &word : words) {
+        if (word.size() > 1) pair_reserve_hint += (word.size() - 1);
+    }
+    PairCount stats;
     while (ranks.size() < vocab_size) {
         ++iteration_count;
         // Count pair frequencies
+        stats.clear();
+        if (pair_reserve_hint > 0) stats.reserve(pair_reserve_hint);
         const auto stats_start = Clock::now();
-        PairCount stats;
-        stats.reserve(10000); // Reasonable initial capacity
+        size_t next_pair_reserve_hint = 0;
+        bool has_pair = false;
+        uint64_t best_pair_key = 0;
+        size_t best_frequency = 0;
 
         for (const auto &word : words) {
-            for (size_t i = 0; i < word.size() - 1; ++i) {
-                ++stats[encode_pair(word[i], word[i + 1])];
+            const size_t length = word.size();
+            if (length < 2) continue;
+            next_pair_reserve_hint += (length - 1);
+
+            TokenId previous = word[0];
+            for (size_t i = 1; i < length; ++i) {
+                const TokenId current = word[i];
+                const uint64_t pair_key = encode_pair(previous, current);
+                auto [it, inserted] = stats.try_emplace(pair_key, size_t{1});
+                if (!inserted) {
+                    ++(it->second);
+                }
+                const size_t frequency = it->second;
+                if (!has_pair || frequency > best_frequency ||
+                    (frequency == best_frequency && pair_key < best_pair_key)) {
+                    has_pair = true;
+                    best_frequency = frequency;
+                    best_pair_key = pair_key;
+                }
+                previous = current;
             }
         }
-        pair_count_time += std::chrono::duration_cast<DurationMs>(
-            Clock::now() - stats_start);
+        pair_reserve_hint = next_pair_reserve_hint;
+        pair_count_time +=
+            std::chrono::duration_cast<DurationMs>(Clock::now() - stats_start);
 
-        if (stats.empty()) break;
+        if (!has_pair) break;
 
         // Find most frequent pair
         const auto find_start = Clock::now();
-        auto max_iter = std::max_element(
-            stats.begin(), stats.end(), [](const auto &a, const auto &b) {
-                if (a.second != b.second) return a.second < b.second;
-                return a.first < b.first; // Tie-breaking for determinism
-            });
-        find_best_time += std::chrono::duration_cast<DurationMs>(Clock::now() -
-                                                                 find_start);
+        const uint64_t pair_key = best_pair_key;
+        const size_t pair_frequency = best_frequency;
+        find_best_time +=
+            std::chrono::duration_cast<DurationMs>(Clock::now() - find_start);
 
-        if (max_iter->second <= 1) break; // No more meaningful merges
+        if (pair_frequency <= 1) break; // No more meaningful merges
         // Extract the most common pair
-        const uint64_t pair_key = max_iter->first;
         const TokenId first_token = first_from_pair(pair_key);
         const TokenId second_token = second_from_pair(pair_key);
         std::string new_token = vocab[first_token] + vocab[second_token];
@@ -201,25 +244,25 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         // Merge pairs in all words
         const auto merge_start = Clock::now();
         merge_pairs(words, first_token, second_token, token_id);
-        merge_time += std::chrono::duration_cast<DurationMs>(Clock::now() -
-                                                             merge_start);
+        merge_time +=
+            std::chrono::duration_cast<DurationMs>(Clock::now() - merge_start);
 
         // Optional: Progress reporting
         if (ranks.size() % 100 == 0) {
-            std::cout << "Vocab size: " << ranks.size() << "/" << vocab_size
-                      << ", merged: " << vocab[first_token] << " + "
-                      << vocab[second_token] << " (freq: " << max_iter->second
-                      << ")" << std::endl;
+            std::cout << "[bpe_train] Vocab size: " << ranks.size() << "/"
+                      << vocab_size << ", merged: " << vocab[first_token]
+                      << " + " << vocab[second_token]
+                      << " (freq: " << pair_frequency << ")" << std::endl;
         }
     }
 
     const DurationMs total_time =
         std::chrono::duration_cast<DurationMs>(Clock::now() - total_start);
 
-    std::cout << "BPE training completed. Final vocabulary size: "
+    std::cout << "[bpe_train] BPE training completed. Final vocabulary size: "
               << ranks.size() << std::endl;
-    std::cout << "[bpe_train] normalize: " << normalize_time.count()
-              << " ms" << std::endl;
+    std::cout << "[bpe_train] normalize: " << normalize_time.count() << " ms"
+              << std::endl;
     std::cout << "[bpe_train] tokenize_to_words: " << tokenize_time.count()
               << " ms" << std::endl;
     std::cout << "[bpe_train] pair counting: " << pair_count_time.count()
@@ -233,70 +276,224 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
               << std::endl;
 }
 
-std::string base64_encode(const std::string &input) {
-    static const char chars[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string result;
-    int val = 0, valb = -6;
-    for (unsigned char c : input) {
-        val = (val << 8) + c;
-        valb += 8;
-        while (valb >= 0) {
-            result.push_back(chars[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
+// BPE encoding with direct token lookup
+std::vector<TokenId>
+byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
+                 const std::unordered_map<TokenId, std::string> &decoder) {
+    if (piece.empty()) {
+        return {};
     }
-    if (valb > -6) result.push_back(chars[((val << 8) >> (valb + 8)) & 0x3F]);
-    while (result.size() % 4)
-        result.push_back('=');
-    return result;
-}
 
-// Check if string is valid UTF-8
-bool is_valid_utf8(const std::string &str) {
-    for (size_t i = 0; i < str.length();) {
-        unsigned char c = str[i];
-        int len = 1;
+    // Direct lookup first - if the whole piece is a token, return it
+    auto it = ranks.find(piece);
+    if (it != ranks.end()) {
+        return {static_cast<TokenId>(it->second)};
+    }
 
-        if (c >= 0x80) {
-            if ((c & 0xE0) == 0xC0)
-                len = 2;
-            else if ((c & 0xF0) == 0xE0)
-                len = 3;
-            else if ((c & 0xF8) == 0xF0)
-                len = 4;
-            else
-                return false; // Invalid UTF-8 start byte
+    // Fall back to character-level tokens for single characters
+    if (piece.length() == 1) {
+        unsigned char c = static_cast<unsigned char>(piece[0]);
+        return {static_cast<TokenId>(c)};
+    }
 
-            // Check continuation bytes
-            for (int j = 1; j < len; j++) {
-                if (i + j >= str.length() || (str[i + j] & 0xC0) != 0x80) {
-                    return false;
+    // Convert to vector of character tokens initially
+    std::vector<TokenId> tokens;
+    tokens.reserve(piece.length());
+    for (unsigned char c : piece) {
+        tokens.push_back(static_cast<TokenId>(c));
+    }
+
+    // Apply BPE merges
+    bool merged = true;
+    while (merged && tokens.size() > 1) {
+        merged = false;
+        std::string best_pair;
+        int best_rank = -1;
+        size_t best_pos = 0;
+
+        // Find the highest-ranking pair to merge
+        for (size_t i = 0; i < tokens.size() - 1; ++i) {
+            const std::string *left_piece = nullptr;
+            const std::string *right_piece = nullptr;
+            std::string left_fallback;
+            std::string right_fallback;
+
+            auto left_it = decoder.find(tokens[i]);
+            if (left_it != decoder.end()) {
+                left_piece = &left_it->second;
+            } else if (tokens[i] < 256) {
+                left_fallback.assign(1, static_cast<char>(tokens[i]));
+                left_piece = &left_fallback;
+            } else {
+                continue;
+            }
+
+            auto right_it = decoder.find(tokens[i + 1]);
+            if (right_it != decoder.end()) {
+                right_piece = &right_it->second;
+            } else if (tokens[i + 1] < 256) {
+                right_fallback.assign(1, static_cast<char>(tokens[i + 1]));
+                right_piece = &right_fallback;
+            } else {
+                continue;
+            }
+
+            std::string pair;
+            pair.reserve(left_piece->size() + right_piece->size());
+            pair.append(*left_piece);
+            pair.append(*right_piece);
+
+            auto pair_it = ranks.find(pair);
+            if (pair_it != ranks.end()) {
+                if (best_rank == -1 || pair_it->second < best_rank) {
+                    best_pair = pair;
+                    best_rank = pair_it->second;
+                    best_pos = i;
+                    merged = true;
                 }
             }
         }
-        i += len;
+
+        // Apply the best merge
+        if (merged) {
+            TokenId new_token = static_cast<TokenId>(best_rank);
+            std::vector<TokenId> new_tokens;
+            new_tokens.reserve(tokens.size());
+
+            for (size_t i = 0; i < tokens.size(); ++i) {
+                if (i == best_pos) {
+                    new_tokens.push_back(new_token);
+                    ++i; // Skip the next token as it's part of the merge
+                } else {
+                    new_tokens.push_back(tokens[i]);
+                }
+            }
+            tokens = std::move(new_tokens);
+        }
     }
-    return true;
+
+    return tokens;
 }
 
-void tokenizer::save_to_json(const Ranks &ranks, const std::string &path) {
-    std::map<std::string, int> sorted;
-    for (const auto &[token, rank] : ranks) {
-        std::string key;
-        if (is_valid_utf8(token)) {
-            key = token;
+// Build decoder map helper function
+std::unordered_map<TokenId, std::string>
+build_decoder_map(const tokenizer::Ranks &ranks) {
+    std::unordered_map<TokenId, std::string> decoder;
+    decoder.reserve(ranks.size());
+
+    for (const auto &[token, id] : ranks) {
+        decoder[static_cast<TokenId>(id)] = token;
+    }
+
+    return decoder;
+}
+
+// encode function with direct lookup
+std::vector<TokenId> tokenizer::encode(const std::string &text,
+                                       const Ranks &ranks,
+                                       const std::string &pattern) {
+    std::vector<TokenId> result;
+    result.reserve(text.length() / 2);
+
+    const std::regex &regex_pattern = get_thread_local_regex(pattern);
+    auto decoder = build_decoder_map(ranks);
+
+    // Tokenize using regex
+    std::sregex_iterator iter(text.begin(), text.end(), regex_pattern);
+    std::sregex_iterator end;
+
+    for (; iter != end; ++iter) {
+        const std::string piece = iter->str();
+
+        // Try direct lookup first
+        auto it = ranks.find(piece);
+        if (it != ranks.end()) {
+            result.push_back(static_cast<TokenId>(it->second));
         } else {
-            key = "b64:" + base64_encode(token);
+            // Fall back to BPE encoding
+            std::vector<TokenId> encoded =
+                byte_pair_encode(piece, ranks, decoder);
+            result.reserve(result.size() + encoded.size());
+            result.insert(result.end(), encoded.begin(), encoded.end());
         }
-        sorted[key] = rank;
     }
 
-    nlohmann::json j(sorted);
+    return result;
+}
 
-    std::ofstream file(path);
-    if (!file) {
-        throw std::runtime_error("Failed to open file for writing: " + path);
+std::string tokenizer::decode(const std::vector<TokenId> &tokens,
+                              const Ranks &ranks) {
+    // Build decoder map once
+    auto decoder = build_decoder_map(ranks);
+
+    std::string result;
+    result.reserve(tokens.size() * 2);
+
+    for (TokenId token : tokens) {
+        auto it = decoder.find(token);
+        if (it != decoder.end()) {
+            result += it->second;
+        } else {
+            // Fall back to single character for unknown tokens
+            if (token < 256) {
+                result += static_cast<char>(token);
+            }
+        }
     }
-    file << j.dump(4);
+
+    return result;
+}
+
+std::string tokenizer::visualize(const std::vector<TokenId> &tokens,
+                                 const Ranks &ranks) {
+    auto decoder = build_decoder_map(ranks);
+    std::string result;
+    for (TokenId token : tokens) {
+        auto it = decoder.find(token);
+        std::string tok_str;
+        if (it != decoder.end()) {
+            tok_str = it->second;
+        } else if (token < 256) {
+            tok_str = std::string(1, static_cast<char>(token));
+        } else {
+            continue;
+        }
+        // Generate color
+        unsigned int hash_val = static_cast<unsigned int>(token);
+        hash_val ^= hash_val >> 16;
+        hash_val *= 0x85ebca6bU;
+        hash_val ^= hash_val >> 13;
+        hash_val *= 0xc2b2ae35U;
+        hash_val ^= hash_val >> 16;
+        int r = (hash_val >> 16) & 0xFF;
+        int g = (hash_val >> 8) & 0xFF;
+        int b = hash_val & 0xFF;
+        double lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (lum < 50) {
+            r = static_cast<int>(r * 1.5);
+            if (r > 255) r = 255;
+            g = static_cast<int>(g * 1.5);
+            if (g > 255) g = 255;
+            b = static_cast<int>(b * 1.5);
+            if (b > 255) b = 255;
+            lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+        int fr, fg_col, fb;
+        if (lum > 128) {
+            fr = fg_col = fb = 0;
+        } else {
+            fr = fg_col = fb = 255;
+        }
+        result += "\x1b[48;2;" + std::to_string(r) + ";" + std::to_string(g) +
+                  ";" + std::to_string(b) + "m";
+        result += "\x1b[38;2;" + std::to_string(fr) + ";" +
+                  std::to_string(fg_col) + ";" + std::to_string(fb) + "m";
+
+        result += tok_str;
+        result += "\x1b[0m";
+    }
+    if (!result.empty() && result.back() == ' ') {
+        result.pop_back();
+    }
+    return result;
 }

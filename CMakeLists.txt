@@ -24,6 +24,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+find_package(absl CONFIG REQUIRED)
+
 # Define entrypoints (executables)
 set(ENTRYPOINTS main)
 
@@ -42,7 +44,7 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
-    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json)
+    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map)
 endif()
 
 # Create executables for each entrypoint

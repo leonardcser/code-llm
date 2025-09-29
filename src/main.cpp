@@ -1,6 +1,7 @@
 #include "tokenizer.hpp"
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <sstream>
 #include <string>
@@ -106,14 +107,19 @@ int main() {
     std::string txt = read_dir("data/py150/data", "*.py", 100);
     // std::string txt = read_file("data/shakespeare/shakespeare.txt");
     const std::string pattern =
-        R"( ?[A-Za-z_][A-Za-z_]*|[0-9]{1,3}| ?[^ _A-Za-z0-9]+[\r\n]*|\s+$|\s+)";
+        R"( ?[A-Za-z_][A-Za-z_.]*|[0-9]{1,3}| ?[^ _A-Za-z0-9]+[\r\n]*|\s+$|\s+(?!\S)|\s)";
     // std::string pattern =
     //     R"([sdmt]|ll|ve|re|[^\r\na-zA-Z0-9]?[a-zA-Z]+|[0-9]{1,3}|
     //     ?[^\sa-zA-Z0-9]+[\r\n]*|\s+$|\s*[\r\n]|\s+(?!\S)|\s)";
 
     tokenizer::Ranks ranks;
-    tokenizer::bpe_train(txt, 100000, pattern, ranks);
+    tokenizer::bpe_train(txt, 50000, pattern, ranks);
 
-    tokenizer::save_to_json(ranks, "ranks2.json");
+    std::string example = read_file("data/py150/data/00/wikihouse/asset.py");
+    auto tokens = tokenizer::encode(example, ranks, pattern);
+
+    // std::cout << tokenizer::visualize(tokens, ranks) << std::endl;
+    std::cout << "Used a total of " << tokens.size() << " tokens" << std::endl;
+
     return 0;
 }
