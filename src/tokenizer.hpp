@@ -14,6 +14,8 @@ void bpe_train(std::string &text, size_t vocab_size, const std::string &pattern,
                Ranks &ranks);
 
 // Save/load functions
+void save(const Ranks &ranks, const std::string &filename);
+Ranks load(const std::string &filename);
 
 // Optimized encoding/decoding functions with direct lookup and thread-local
 // regex

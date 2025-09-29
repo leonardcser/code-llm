@@ -3,6 +3,9 @@
 #include <absl/container/flat_hash_map.h>
 #include <algorithm>
 #include <cctype>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/string.hpp>
+#include <cereal/types/unordered_map.hpp>
 #include <chrono>
 #include <cstdint>
 #include <fstream>
@@ -496,4 +499,29 @@ std::string tokenizer::visualize(const std::vector<TokenId> &tokens,
         result.pop_back();
     }
     return result;
+}
+
+void tokenizer::save(const Ranks &ranks, const std::string &filename) {
+    std::ofstream os(filename, std::ios::binary);
+    if (!os.is_open()) {
+        throw std::runtime_error("Failed to open file for writing: " +
+                                 filename);
+    }
+
+    cereal::BinaryOutputArchive archive(os);
+    archive(ranks);
+}
+
+tokenizer::Ranks tokenizer::load(const std::string &filename) {
+    std::ifstream is(filename, std::ios::binary);
+    if (!is.is_open()) {
+        throw std::runtime_error("Failed to open file for reading: " +
+                                 filename);
+    }
+
+    Ranks ranks;
+    cereal::BinaryInputArchive archive(is);
+    archive(ranks);
+
+    return ranks;
 }

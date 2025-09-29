@@ -104,7 +104,7 @@ std::string read_dir(const std::string &relative_dir,
 }
 
 int main() {
-    std::string txt = read_dir("data/py150/data", "*.py", 100);
+    std::string txt = read_dir("data/py150/data", "*.py", 10000);
     // std::string txt = read_file("data/shakespeare/shakespeare.txt");
     const std::string pattern =
         R"( ?[A-Za-z_][A-Za-z_.]*|[0-9]{1,3}| ?[^ _A-Za-z0-9]+[\r\n]*|\s+$|\s+(?!\S)|\s)";
@@ -114,6 +114,8 @@ int main() {
 
     tokenizer::Ranks ranks;
     tokenizer::bpe_train(txt, 50000, pattern, ranks);
+
+    tokenizer::save(ranks, "out/tok.bin");
 
     std::string example = read_file("data/py150/data/00/wikihouse/asset.py");
     auto tokens = tokenizer::encode(example, ranks, pattern);

@@ -24,6 +24,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# cereal (v1.3.2) for binary serialization
+FetchContent_Declare(
+  cereal
+  GIT_REPOSITORY https://github.com/USCiLab/cereal.git
+  GIT_TAG v1.3.2
+)
+set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "Skip cereal performance tests")
+set(BUILD_TESTS OFF CACHE BOOL "Skip cereal tests")
+set(BUILD_SANDBOX OFF CACHE BOOL "Skip cereal sandbox")
+FetchContent_MakeAvailable(cereal)
+
 find_package(absl CONFIG REQUIRED)
 
 # Define entrypoints (executables)
@@ -44,7 +55,7 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
-    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map)
+    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map cereal::cereal)
 endif()
 
 # Create executables for each entrypoint
