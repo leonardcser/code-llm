@@ -2,7 +2,9 @@
 #include "io.hpp"
 #include "tokenizer.hpp"
 #include <filesystem>
+#include <functional>
 #include <iostream>
+#include <sstream>
 #include <utility>
 
 int main() {
@@ -32,9 +34,41 @@ int main() {
     std::cout << "Validation data: " << val_paths.size() << std::endl;
     std::cout << "Total data: " << total_size << std::endl << std::endl;
     std::cout << "Reading files..." << std::endl;
-    std::string txt = io::concatenate_files(train_paths);
+    auto trim_comments = [](const std::string &input) -> std::string {
+        std::istringstream iss(input);
+        std::ostringstream oss;
+        std::string line;
+        bool skipping = true;
+        while (std::getline(iss, line)) {
+            // Trim leading whitespace
+            size_t start = line.find_first_not_of(" \t");
+            if (start == std::string::npos) {
+                // Empty line, skip if in skipping mode
+                if (skipping) continue;
+                oss << line << '\n';
+                continue;
+            }
+            std::string trimmed = line.substr(start);
+            if (skipping && trimmed.empty()) continue;
+            if (skipping && trimmed[0] == '#') {
+                // Skip full comment line at start
+                continue;
+            }
+            skipping = false;
+            // For non-skipped lines, remove inline comments if any
+            size_t pos = line.find('#');
+            if (pos != std::string::npos &&
+                line.find_first_not_of(" \t", 0) < pos) {
+                // Only remove if # is after non-whitespace
+                line.erase(pos);
+            }
+            oss << line << '\n';
+        }
+        return oss.str();
+    };
+    std::string txt = io::concatenate_files(train_paths, trim_comments);
     const std::string pattern =
-        R"( ?[A-Za-z_][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
+        R"( ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
     // std::string pattern =
     //     R"([sdmt]|ll|ve|re|[^\r\na-zA-Z0-9]?[a-zA-Z]+|[0-9]{1,3}|
     //     ?[^\sa-zA-Z0-9]+[\r\n]*|\s+$|\s*[\r\n]|\s+(?!\S)|\s)";
@@ -51,17 +85,6 @@ int main() {
     std::filesystem::create_directories("out");
     tokenizer::Tokenizer tok{ranks, pattern};
     tokenizer::save(tok, "out/tok.bin");
-
-    // Use first train path as example if available, else fallback
-    std::string example_path =
-        train_paths.empty()
-            ? std::string("data/py150/data/00/wikihouse/asset.py")
-            : train_paths[0];
-    std::string example = io::read_file(example_path);
-    auto tokens = tokenizer::encode(example, ranks, pattern);
-
-    // std::cout << tokenizer::visualize(tokens, ranks) << std::endl;
-    std::cout << "Used a total of " << tokens.size() << " tokens" << std::endl;
 
     return 0;
 }

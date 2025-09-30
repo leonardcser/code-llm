@@ -62,8 +62,6 @@ split(const std::vector<std::string> &paths, double train_ratio) {
     return {std::move(train), std::move(test)};
 }
 
-void set_seed(unsigned int seed) {
-    rng.seed(seed);
-}
+void set_seed(unsigned int seed) { rng.seed(seed); }
 
 } // namespace dataloader

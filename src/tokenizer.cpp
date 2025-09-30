@@ -794,22 +794,12 @@ std::string tokenizer::visualize(const std::vector<TokenId> &tokens,
         int r = (hash_val >> 16) & 0xFF;
         int g = (hash_val >> 8) & 0xFF;
         int b = hash_val & 0xFF;
-        double lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        if (lum < 50) {
-            r = static_cast<int>(r * 1.5);
-            if (r > 255) r = 255;
-            g = static_cast<int>(g * 1.5);
-            if (g > 255) g = 255;
-            b = static_cast<int>(b * 1.5);
-            if (b > 255) b = 255;
-            lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        }
-        int fr, fg_col, fb;
-        if (lum > 128) {
-            fr = fg_col = fb = 0;
-        } else {
-            fr = fg_col = fb = 255;
-        }
+        // Adjust to pastel: blend with white
+        double factor = 0.6;
+        r = static_cast<int>(r * factor + 255 * (1 - factor));
+        g = static_cast<int>(g * factor + 255 * (1 - factor));
+        b = static_cast<int>(b * factor + 255 * (1 - factor));
+        int fr = 0, fg_col = 0, fb = 0;
         result += "\x1b[48;2;" + std::to_string(r) + ";" + std::to_string(g) +
                   ";" + std::to_string(b) + "m";
         result += "\x1b[38;2;" + std::to_string(fr) + ";" +
