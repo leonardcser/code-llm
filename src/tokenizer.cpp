@@ -1,5 +1,6 @@
 #include "tokenizer.hpp"
 #include "text.hpp"
+#include "threading.hpp"
 #include <absl/container/flat_hash_map.h>
 #include <algorithm>
 #include <cctype>
@@ -295,23 +296,23 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     DurationMs merge_time = DurationMs::zero();
     size_t iteration_count = 0;
 
-    // Initial pair counting (parallelized)
+    // Create thread pool (reused throughout training)
+    const size_t num_threads = std::thread::hardware_concurrency();
+    threading::ThreadPool thread_pool(num_threads);
+    const size_t chunk_size = (words.size() + num_threads - 1) / num_threads;
+
+    // Initial pair counting (parallelized with thread pool)
     const auto initial_count_start = Clock::now();
 
-    const size_t num_threads = std::thread::hardware_concurrency();
     std::vector<PairCount> thread_pair_counts(num_threads);
-    const size_t chunk_size = (words.size() + num_threads - 1) / num_threads;
 
     // Reserve space for each thread's hash map
     for (auto &tpc : thread_pair_counts) {
         tpc.reserve(words.size() / num_threads + 1024);
     }
 
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads);
-
     for (size_t t = 0; t < num_threads; ++t) {
-        threads.emplace_back([&, t]() {
+        thread_pool.enqueue([&, t]() {
             const size_t start = t * chunk_size;
             const size_t end = std::min(start + chunk_size, words.size());
 
@@ -329,9 +330,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         });
     }
 
-    for (auto &thread : threads) {
-        thread.join();
-    }
+    thread_pool.wait();
 
     // Merge thread-local counts
     PairCount pair_counts;
@@ -391,9 +390,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         std::vector<absl::flat_hash_map<uint64_t, int64_t>> thread_deltas(
             num_threads);
 
-        threads.clear();
         for (size_t t = 0; t < num_threads; ++t) {
-            threads.emplace_back([&, t]() {
+            thread_pool.enqueue([&, t]() {
                 const size_t start = t * chunk_size;
                 const size_t end = std::min(start + chunk_size, words.size());
                 auto &local_deltas = thread_deltas[t];
@@ -425,7 +423,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                             if (to_delete->next) {
                                 to_delete->next->prev = node;
                             }
-                            delete to_delete;
+                            // Memory pool handles cleanup, no delete needed
 
                             // Record new pairs
                             if (node->prev) {
@@ -453,9 +451,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
             });
         }
 
-        for (auto &thread : threads) {
-            thread.join();
-        }
+        thread_pool.wait();
 
         // Merge thread-local deltas
         absl::flat_hash_map<uint64_t, int64_t> pair_deltas;
@@ -496,15 +492,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         }
     }
 
-    // Cleanup linked lists
-    for (SymbolNode *head : word_heads) {
-        SymbolNode *node = head;
-        while (node) {
-            SymbolNode *next = node->next;
-            delete node;
-            node = next;
-        }
-    }
+    // Memory pool automatically cleans up all nodes
 
     const DurationMs total_time =
         std::chrono::duration_cast<DurationMs>(Clock::now() - total_start);

@@ -5,7 +5,7 @@
 #include <iostream>
 
 int main() {
-    auto paths = dataloader::load_file_paths("data/py150/data", "*.py", 1500);
+    auto paths = dataloader::load_file_paths("data/py150/data", "*.py");
     dataloader::set_seed(42);
     dataloader::shuffle(paths);
     auto [train_paths, val_paths] = dataloader::split(paths, 0.7);
@@ -27,8 +27,7 @@ int main() {
     size_t vocab_size = 50000;
     // size_t max_unique_words = 100000;
     size_t max_unique_words = 0;
-    tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words,
-                         5000);
+    tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words, 1);
 
     std::filesystem::create_directories("out");
     tokenizer::save(ranks, "out/tok.bin");
