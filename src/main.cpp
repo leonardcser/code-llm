@@ -17,8 +17,7 @@ int main() {
         val_paths = io::load_txt(val_txt);
         total_size = train_paths.size() + val_paths.size();
     } else {
-        auto paths =
-            dataloader::load_file_paths("data/py150/data", "*.py", 1000);
+        auto paths = dataloader::load_file_paths("data/py150/data", "*.py");
         dataloader::set_seed(42);
         dataloader::shuffle(paths);
         auto [t, v] = dataloader::split(paths, 0.7);
@@ -35,7 +34,7 @@ int main() {
     std::cout << "Reading files..." << std::endl;
     std::string txt = io::concatenate_files(train_paths);
     const std::string pattern =
-        R"( ?[A-Za-z_][A-Za-z_.]*|[0-9]{1,3}| ?[^ _A-Za-z0-9]+[\r\n]*|\s+$|\s+(?!\S)|\s)";
+        R"( ?[A-Za-z_][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
     // std::string pattern =
     //     R"([sdmt]|ll|ve|re|[^\r\na-zA-Z0-9]?[a-zA-Z]+|[0-9]{1,3}|
     //     ?[^\sa-zA-Z0-9]+[\r\n]*|\s+$|\s*[\r\n]|\s+(?!\S)|\s)";
@@ -47,10 +46,11 @@ int main() {
     // size_t max_unique_words = 100000;
     size_t max_unique_words = 0;
     tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words,
-                         5000);
+                         1000);
 
     std::filesystem::create_directories("out");
-    tokenizer::save(ranks, "out/tok.bin");
+    tokenizer::Tokenizer tok{ranks, pattern};
+    tokenizer::save(tok, "out/tok.bin");
 
     // Use first train path as example if available, else fallback
     std::string example_path =

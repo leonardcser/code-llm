@@ -35,10 +35,18 @@ set(BUILD_TESTS OFF CACHE BOOL "Skip cereal tests")
 set(BUILD_SANDBOX OFF CACHE BOOL "Skip cereal sandbox")
 FetchContent_MakeAvailable(cereal)
 
+# RE/flex for fast regex (v6.0.0)
+FetchContent_Declare(
+    reflex
+    GIT_REPOSITORY https://github.com/Genivia/RE-flex.git
+    GIT_TAG v6.0.0
+)
+FetchContent_MakeAvailable(reflex)
+
 find_package(absl CONFIG REQUIRED)
 
 # Define entrypoints (executables)
-set(ENTRYPOINTS main)
+set(ENTRYPOINTS main visualize)
 
 # Find all source files
 file(GLOB SOURCES "src/*.cpp")
@@ -55,7 +63,8 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
-    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map cereal::cereal)
+    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map cereal::cereal ReflexLib)
+    target_compile_options(llm_lib PRIVATE -Wno-deprecated-declarations)
 endif()
 
 # Create executables for each entrypoint
@@ -64,7 +73,7 @@ foreach(ENTRYPOINT ${ENTRYPOINTS})
     if(LIB_SOURCES)
         target_link_libraries(${ENTRYPOINT} PRIVATE llm_lib)
     endif()
-    target_link_libraries(${ENTRYPOINT} PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(${ENTRYPOINT} PRIVATE nlohmann_json::nlohmann_json ReflexLib)
 endforeach()
 
 # Test executables

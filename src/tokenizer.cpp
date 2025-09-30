@@ -13,13 +13,14 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <queue>
-#include <regex>
+#include <reflex/matcher.h>
+#include <reflex/pattern.h>
 #include <thread>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
+using tokenizer::OffsetList;
+using tokenizer::OffsetPair;
 using tokenizer::TokenId;
 using Word = std::vector<TokenId>;
 using WordList = std::vector<Word>;
@@ -53,90 +54,100 @@ struct PairEntry {
     }
 };
 
-// Thread-local regex cache to avoid recompilation
-thread_local std::unordered_map<std::string, std::regex> regex_cache;
+// Thread-local RE/flex matcher cache (compiles pattern once)
+thread_local std::unordered_map<std::string, std::unique_ptr<reflex::Pattern>>
+    pattern_cache;
 
-// Helper function to get thread-local regex
-const std::regex &get_thread_local_regex(const std::string &pattern) {
-    auto it = regex_cache.find(pattern);
-    if (it == regex_cache.end()) {
-        it = regex_cache
-                 .emplace(pattern,
-                          std::regex(pattern, std::regex_constants::optimize))
-                 .first;
+// Helper to get/create pattern for regex (compiled once)
+reflex::Pattern *get_pattern(const std::string &pattern_str) {
+    auto it = pattern_cache.find(pattern_str);
+    if (it == pattern_cache.end()) {
+        auto pat = std::make_unique<reflex::Pattern>(pattern_str.c_str());
+        it = pattern_cache.emplace(pattern_str, std::move(pat)).first;
+        return it->second.get();
     }
-    return it->second;
+    return it->second.get();
 }
 
-// Helper function to split text into words and convert to byte tokens
-WordList tokenize_to_words(const std::string &text,
-                           const std::string &pattern_str) {
-    WordList words;
+// Helper to create matcher with input and pattern (use unique_ptr to manage)
+std::unique_ptr<reflex::Matcher> create_matcher(const std::string &input,
+                                                reflex::Pattern *pat) {
+    return std::make_unique<reflex::Matcher>(pat, reflex::Input(input.c_str()));
+}
 
+// Helper function to split text into word offsets (start, end indices in text)
+// - efficient, no early vectors
+OffsetList tokenize_to_offsets(const std::string &text,
+                               const std::string &pattern_str) {
+    OffsetList offsets;
+
+    if (!pattern_str.empty()) {
+        reflex::Pattern *pat = get_pattern(pattern_str);
+        auto matcher = create_matcher(text, pat);
+        offsets.reserve(text.length() / 3);
+
+        while (matcher->find()) {
+            size_t start = matcher->first();
+            size_t len = matcher->size();
+            offsets.emplace_back(start, start + len);
+        }
+
+        // Early return if multi-char "words" exist (check lengths >1 byte)
+        bool has_multi_char = false;
+        for (const auto &off : offsets) {
+            if (off.second - off.first > 1) {
+                has_multi_char = true;
+                break;
+            }
+        }
+        if (has_multi_char) return offsets;
+    }
+
+    // Fallback: Manual split on whitespace transitions, grouping consecutive
+    // spaces
+    offsets.reserve(text.length() / 4 + 1);
+    size_t start = 0;
+    bool prev_space = true; // Assume leading space to handle initial non-space
+    for (size_t i = 0; i <= text.length(); ++i) {
+        bool is_space = (i < text.length())
+                            ? std::isspace(static_cast<unsigned char>(text[i]))
+                            : false;
+        if (i == text.length() || is_space != prev_space) {
+            if (i > start) {
+                offsets.emplace_back(start, i);
+            }
+            start = i;
+            prev_space = is_space;
+        }
+    }
+
+    if (offsets.empty() && !text.empty()) {
+        offsets.emplace_back(0, text.length());
+    }
+
+    return offsets;
+}
+
+// Lazy conversion: offsets to byte-token words (only for unique offsets)
+WordList offsets_to_words(const std::string &text, const OffsetList &offsets) {
+    WordList words;
+    words.reserve(offsets.size());
     auto push_char = [](unsigned char c) -> TokenId {
         return static_cast<TokenId>(c);
     };
 
-    if (!pattern_str.empty()) {
-        const std::regex &pattern = get_thread_local_regex(pattern_str);
-        words.reserve(text.length() / 3);
-
-        std::sregex_iterator iter(text.begin(), text.end(), pattern);
-        std::sregex_iterator end;
-
-        for (; iter != end; ++iter) {
-            const std::string &word = iter->str();
-            Word token_word;
-            token_word.reserve(word.length());
-
-            for (unsigned char c : word) {
-                token_word.push_back(push_char(c));
-            }
-            words.push_back(std::move(token_word));
+    for (const auto &off : offsets) {
+        size_t len = off.second - off.first;
+        if (len == 0) continue;
+        Word token_word;
+        token_word.reserve(len);
+        for (size_t j = 0; j < len; ++j) {
+            token_word.push_back(
+                push_char(static_cast<unsigned char>(text[off.first + j])));
         }
-
-        const bool has_multi_char =
-            std::any_of(words.begin(), words.end(),
-                        [](const Word &word) { return word.size() > 1; });
-
-        if (has_multi_char) return words;
+        words.push_back(std::move(token_word));
     }
-
-    WordList fallback_words;
-    fallback_words.reserve(text.length() / 4 + 1);
-
-    Word current_word;
-    current_word.reserve(32); // Larger initial capacity
-
-    auto flush_word = [&]() {
-        if (!current_word.empty()) {
-            fallback_words.emplace_back();
-            fallback_words.back().swap(current_word);
-            current_word.clear();
-            current_word.reserve(32);
-        }
-    };
-
-    for (unsigned char raw_c : text) {
-        if (std::isspace(static_cast<unsigned char>(raw_c))) {
-            flush_word();
-            Word whitespace_token(1, push_char(raw_c));
-            fallback_words.push_back(std::move(whitespace_token));
-        } else {
-            current_word.push_back(push_char(raw_c));
-        }
-    }
-    flush_word();
-
-    if (!fallback_words.empty()) return fallback_words;
-
-    WordList single_word(1);
-    Word &all_tokens = single_word.front();
-    all_tokens.reserve(text.size());
-    for (unsigned char raw_c : text) {
-        all_tokens.push_back(push_char(raw_c));
-    }
-    return single_word;
+    return words;
 }
 
 // Helper function to merge pairs in word list
@@ -202,42 +213,59 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
 
     DurationMs tokenize_time = DurationMs::zero();
     const auto tokenize_start = Clock::now();
-    // Split text into words using provided regex pattern
-    WordList words = tokenize_to_words(text, pattern);
-    // Deduplicate identical words to reduce repeated work; keep multiplicities
-    std::vector<size_t> word_counts_vec;
-    word_counts_vec.reserve(words.size());
+    // Split into offsets (fast, allocation-light)
+    OffsetList offsets = tokenize_to_offsets(text, pattern);
 
-    // Use vector as key directly with custom hasher
-    struct VectorHash {
-        size_t operator()(const Word& w) const {
+    // Dedup offsets (hash text slices, no copies/ conversions yet)
+    std::vector<size_t> word_counts_vec;
+    word_counts_vec.reserve(offsets.size());
+
+    // Define hasher and eq as structs
+    struct OffsetHash {
+        const std::string &text_ref;
+        OffsetHash(const std::string &t) : text_ref(t) {}
+        size_t operator()(const OffsetPair &off) const {
             size_t h = 0;
-            for (TokenId t : w) {
-                h ^= std::hash<TokenId>{}(t) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            for (size_t i = off.first; i < off.second; ++i) {
+                unsigned char c = static_cast<unsigned char>(text_ref[i]);
+                h ^= std::hash<unsigned char>{}(c) + 0x9e3779b9 + (h << 6) +
+                     (h >> 2);
             }
             return h;
         }
     };
-
-    absl::flat_hash_map<Word, size_t, VectorHash> word_index;
-    word_index.reserve(words.size() / 2);
-    {
-        WordList unique_words;
-        unique_words.reserve(words.size() / 2);
-        for (auto &w : words) {
-            if (w.empty()) continue;
-            auto [it, inserted] = word_index.try_emplace(w, unique_words.size());
-            if (inserted) {
-                unique_words.push_back(std::move(w));
-                word_counts_vec.push_back(1);
-            } else {
-                ++word_counts_vec[it->second];
-            }
+    struct OffsetEq {
+        const std::string &text_ref;
+        OffsetEq(const std::string &t) : text_ref(t) {}
+        bool operator()(const OffsetPair &a, const OffsetPair &b) const {
+            if (a.second - a.first != b.second - b.first) return false;
+            return std::equal(text_ref.begin() + a.first,
+                              text_ref.begin() + a.second,
+                              text_ref.begin() + b.first);
         }
-        if (!unique_words.empty()) {
-            words.swap(unique_words);
+    };
+
+    // Construct hash map with custom hash/eq and reserve
+    absl::flat_hash_map<OffsetPair, size_t, OffsetHash, OffsetEq> offset_index(
+        offsets.size() / 2, OffsetHash(text), OffsetEq(text));
+    OffsetList unique_offsets;
+    unique_offsets.reserve(offsets.size() / 2);
+    for (const auto &off : offsets) {
+        if (off.second <= off.first) continue;
+        auto [it, inserted] =
+            offset_index.try_emplace(off, unique_offsets.size());
+        if (inserted) {
+            unique_offsets.push_back(off);
+            word_counts_vec.push_back(1);
+        } else {
+            ++word_counts_vec[it->second];
         }
     }
+    offsets = std::move(unique_offsets);
+
+    // Convert only unique to words (major saving)
+    WordList words = offsets_to_words(text, offsets);
+
     tokenize_time +=
         std::chrono::duration_cast<DurationMs>(Clock::now() - tokenize_start);
 
@@ -333,7 +361,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                 for (size_t i = 0; i < symbols.size(); ++i) {
                     if (symbols[i].deleted || symbols[i].next == -1) continue;
 
-                    const size_t next_idx = static_cast<size_t>(symbols[i].next);
+                    const size_t next_idx =
+                        static_cast<size_t>(symbols[i].next);
                     if (symbols[next_idx].deleted) continue;
 
                     uint64_t pair_key =
@@ -416,7 +445,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         const auto merge_start = Clock::now();
 
         absl::flat_hash_map<uint64_t, int64_t> pair_deltas;
-        absl::flat_hash_map<uint64_t, absl::flat_hash_set<size_t>> new_positions;
+        absl::flat_hash_map<uint64_t, absl::flat_hash_set<size_t>>
+            new_positions;
 
         for (size_t wi : positions) {
             if (wi >= word_symbols.size()) continue;
@@ -439,8 +469,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                             static_cast<size_t>(symbols[i].prev);
                         if (prev_idx < symbols.size() &&
                             !symbols[prev_idx].deleted) {
-                            uint64_t left_pair =
-                                encode_pair(symbols[prev_idx].token, first_token);
+                            uint64_t left_pair = encode_pair(
+                                symbols[prev_idx].token, first_token);
                             pair_deltas[left_pair] -= mult;
                         }
                     }
@@ -449,9 +479,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                             static_cast<size_t>(symbols[next_idx].next);
                         if (next_next_idx < symbols.size() &&
                             !symbols[next_next_idx].deleted) {
-                            uint64_t right_pair =
-                                encode_pair(second_token,
-                                           symbols[next_next_idx].token);
+                            uint64_t right_pair = encode_pair(
+                                second_token, symbols[next_next_idx].token);
                             pair_deltas[right_pair] -= mult;
                         }
                     }
@@ -469,7 +498,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                         const size_t new_next_idx =
                             static_cast<size_t>(symbols[i].next);
                         if (new_next_idx < symbols.size()) {
-                            symbols[new_next_idx].prev = static_cast<ssize_t>(i);
+                            symbols[new_next_idx].prev =
+                                static_cast<ssize_t>(i);
                         }
                     }
 
@@ -490,8 +520,8 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                             static_cast<size_t>(symbols[i].next);
                         if (new_next_idx < symbols.size() &&
                             !symbols[new_next_idx].deleted) {
-                            uint64_t new_right_pair =
-                                encode_pair(token_id, symbols[new_next_idx].token);
+                            uint64_t new_right_pair = encode_pair(
+                                token_id, symbols[new_next_idx].token);
                             pair_deltas[new_right_pair] += mult;
                             new_positions[new_right_pair].insert(wi);
                         }
@@ -679,25 +709,37 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
     std::vector<TokenId> result;
     result.reserve(text.length() / 2);
 
-    const std::regex &regex_pattern = get_thread_local_regex(pattern);
     auto decoder = build_decoder_map(ranks);
 
-    // Tokenize using regex
-    std::sregex_iterator iter(text.begin(), text.end(), regex_pattern);
-    std::sregex_iterator end;
+    if (!pattern.empty()) {
+        reflex::Pattern *pat = get_pattern(pattern);
+        auto matcher = create_matcher(text, pat);
 
-    for (; iter != end; ++iter) {
-        const std::string piece = iter->str();
+        while (matcher->find()) {
+            size_t start = matcher->first();
+            size_t len = matcher->size();
+            std::string piece(text.data() + start, len);
 
-        // Try direct lookup first
+            // Try direct lookup first
+            auto it = ranks.find(piece);
+            if (it != ranks.end()) {
+                result.push_back(static_cast<TokenId>(it->second));
+            } else {
+                // Fall back to BPE encoding
+                std::vector<TokenId> encoded =
+                    byte_pair_encode(piece, ranks, decoder);
+                result.insert(result.end(), encoded.begin(), encoded.end());
+            }
+        }
+    } else {
+        // Fallback: whole text as one piece
+        std::string piece = text;
         auto it = ranks.find(piece);
         if (it != ranks.end()) {
             result.push_back(static_cast<TokenId>(it->second));
         } else {
-            // Fall back to BPE encoding
             std::vector<TokenId> encoded =
                 byte_pair_encode(piece, ranks, decoder);
-            result.reserve(result.size() + encoded.size());
             result.insert(result.end(), encoded.begin(), encoded.end());
         }
     }
@@ -782,7 +824,7 @@ std::string tokenizer::visualize(const std::vector<TokenId> &tokens,
     return result;
 }
 
-void tokenizer::save(const Ranks &ranks, const std::string &filename) {
+void tokenizer::save(const Tokenizer &tokenizer, const std::string &filename) {
     std::ofstream os(filename, std::ios::binary);
     if (!os.is_open()) {
         throw std::runtime_error("Failed to open file for writing: " +
@@ -790,19 +832,21 @@ void tokenizer::save(const Ranks &ranks, const std::string &filename) {
     }
 
     cereal::BinaryOutputArchive archive(os);
-    archive(ranks);
+    archive(tokenizer.ranks);
+    archive(tokenizer.pattern);
 }
 
-tokenizer::Ranks tokenizer::load(const std::string &filename) {
+tokenizer::Tokenizer tokenizer::load(const std::string &filename) {
     std::ifstream is(filename, std::ios::binary);
     if (!is.is_open()) {
         throw std::runtime_error("Failed to open file for reading: " +
                                  filename);
     }
 
-    Ranks ranks;
+    Tokenizer tok;
     cereal::BinaryInputArchive archive(is);
-    archive(ranks);
+    archive(tok.ranks);
+    archive(tok.pattern);
 
-    return ranks;
+    return tok;
 }
