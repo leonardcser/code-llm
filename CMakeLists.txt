@@ -11,7 +11,7 @@ endif()
 
 # Set compiler flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mcpu=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
 
 enable_testing()
 
