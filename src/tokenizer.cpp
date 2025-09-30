@@ -173,6 +173,33 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     const auto tokenize_start = Clock::now();
     // Split text into words using provided regex pattern
     WordList words = tokenize_to_words(text, pattern);
+    // Deduplicate identical words to reduce repeated work; keep multiplicities
+    std::vector<size_t> word_counts_vec;
+    word_counts_vec.reserve(words.size());
+    absl::flat_hash_map<std::string, size_t> word_index;
+    word_index.reserve(words.size() * 2);
+    {
+        WordList unique_words;
+        unique_words.reserve(words.size());
+        for (const auto &w : words) {
+            if (w.empty()) continue;
+            std::string key;
+            key.resize(w.size());
+            for (size_t i = 0; i < w.size(); ++i) {
+                key[i] = static_cast<char>(static_cast<unsigned char>(w[i]));
+            }
+            auto [it, inserted] = word_index.try_emplace(key, unique_words.size());
+            if (inserted) {
+                unique_words.push_back(w);
+                word_counts_vec.push_back(1);
+            } else {
+                ++word_counts_vec[it->second];
+            }
+        }
+        if (!unique_words.empty()) {
+            words.swap(unique_words);
+        }
+    }
     tokenize_time +=
         std::chrono::duration_cast<DurationMs>(Clock::now() - tokenize_start);
 
@@ -182,8 +209,11 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     DurationMs merge_time = DurationMs::zero();
     size_t iteration_count = 0;
     size_t pair_reserve_hint = 0;
-    for (const auto &word : words) {
-        if (word.size() > 1) pair_reserve_hint += (word.size() - 1);
+    if (!words.empty()) {
+        for (size_t wi = 0; wi < words.size(); ++wi) {
+            const auto &word = words[wi];
+            if (word.size() > 1) pair_reserve_hint += (word.size() - 1) * word_counts_vec[wi];
+        }
     }
     PairCount stats;
     while (ranks.size() < vocab_size) {
@@ -197,18 +227,20 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         uint64_t best_pair_key = 0;
         size_t best_frequency = 0;
 
-        for (const auto &word : words) {
+        for (size_t wi = 0; wi < words.size(); ++wi) {
+            const auto &word = words[wi];
+            const size_t mult = word_counts_vec[wi];
             const size_t length = word.size();
             if (length < 2) continue;
-            next_pair_reserve_hint += (length - 1);
+            next_pair_reserve_hint += (length - 1) * mult;
 
             TokenId previous = word[0];
             for (size_t i = 1; i < length; ++i) {
                 const TokenId current = word[i];
                 const uint64_t pair_key = encode_pair(previous, current);
-                auto [it, inserted] = stats.try_emplace(pair_key, size_t{1});
+                auto [it, inserted] = stats.try_emplace(pair_key, mult);
                 if (!inserted) {
-                    ++(it->second);
+                    it->second += mult;
                 }
                 const size_t frequency = it->second;
                 if (!has_pair || frequency > best_frequency ||
@@ -251,7 +283,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
             std::chrono::duration_cast<DurationMs>(Clock::now() - merge_start);
 
         // Optional: Progress reporting
-        if (ranks.size() % 100 == 0) {
+        if (ranks.size() % 1000 == 0) {
             std::cout << "[bpe_train] Vocab size: " << ranks.size() << "/"
                       << vocab_size << ", merged: " << vocab[first_token]
                       << " + " << vocab[second_token]
