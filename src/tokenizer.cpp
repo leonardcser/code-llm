@@ -2,6 +2,7 @@
 #include "text.hpp"
 #include "threading.hpp"
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <algorithm>
 #include <cctype>
 #include <cereal/archives/binary.hpp>
@@ -26,13 +27,15 @@ using PairCount = absl::flat_hash_map<uint64_t, size_t>;
 using Clock = std::chrono::steady_clock;
 using DurationMs = std::chrono::duration<double, std::milli>;
 
-// Symbol node for linked list representation
-struct SymbolNode {
+// Symbol for vector-based representation
+struct Symbol {
     TokenId token;
-    SymbolNode *prev;
-    SymbolNode *next;
+    ssize_t prev; // Index of previous symbol (-1 if none)
+    ssize_t next; // Index of next symbol (-1 if none)
+    bool deleted; // Mark for deletion instead of actually deleting
 
-    SymbolNode(TokenId t) : token(t), prev(nullptr), next(nullptr) {}
+    Symbol(TokenId t, ssize_t p, ssize_t n)
+        : token(t), prev(p), next(n), deleted(false) {}
 };
 
 // Priority queue entry for pair frequencies
@@ -204,22 +207,28 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     // Deduplicate identical words to reduce repeated work; keep multiplicities
     std::vector<size_t> word_counts_vec;
     word_counts_vec.reserve(words.size());
-    absl::flat_hash_map<std::string, size_t> word_index;
-    word_index.reserve(words.size() * 2);
+
+    // Use vector as key directly with custom hasher
+    struct VectorHash {
+        size_t operator()(const Word& w) const {
+            size_t h = 0;
+            for (TokenId t : w) {
+                h ^= std::hash<TokenId>{}(t) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            }
+            return h;
+        }
+    };
+
+    absl::flat_hash_map<Word, size_t, VectorHash> word_index;
+    word_index.reserve(words.size() / 2);
     {
         WordList unique_words;
-        unique_words.reserve(words.size());
-        for (const auto &w : words) {
+        unique_words.reserve(words.size() / 2);
+        for (auto &w : words) {
             if (w.empty()) continue;
-            std::string key;
-            key.resize(w.size());
-            for (size_t i = 0; i < w.size(); ++i) {
-                key[i] = static_cast<char>(static_cast<unsigned char>(w[i]));
-            }
-            auto [it, inserted] =
-                word_index.try_emplace(key, unique_words.size());
+            auto [it, inserted] = word_index.try_emplace(w, unique_words.size());
             if (inserted) {
-                unique_words.push_back(w);
+                unique_words.push_back(std::move(w));
                 word_counts_vec.push_back(1);
             } else {
                 ++word_counts_vec[it->second];
@@ -272,21 +281,18 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                   << std::endl;
     }
 
-    // Build linked list representation for each word
-    std::vector<SymbolNode *> word_heads(words.size(), nullptr);
+    // Build vector-based symbol representation for each word
+    std::vector<std::vector<Symbol>> word_symbols(words.size());
 
     for (size_t wi = 0; wi < words.size(); ++wi) {
         if (words[wi].empty()) continue;
 
-        SymbolNode *head = new SymbolNode(words[wi][0]);
-        word_heads[wi] = head;
-        SymbolNode *current = head;
-
-        for (size_t i = 1; i < words[wi].size(); ++i) {
-            SymbolNode *node = new SymbolNode(words[wi][i]);
-            current->next = node;
-            node->prev = current;
-            current = node;
+        word_symbols[wi].reserve(words[wi].size());
+        for (size_t i = 0; i < words[wi].size(); ++i) {
+            ssize_t prev_idx = (i == 0) ? -1 : static_cast<ssize_t>(i - 1);
+            ssize_t next_idx =
+                (i == words[wi].size() - 1) ? -1 : static_cast<ssize_t>(i + 1);
+            word_symbols[wi].emplace_back(words[wi][i], prev_idx, next_idx);
         }
     }
 
@@ -301,30 +307,39 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     threading::ThreadPool thread_pool(num_threads);
     const size_t chunk_size = (words.size() + num_threads - 1) / num_threads;
 
-    // Initial pair counting (parallelized with thread pool)
+    // Initial pair counting with position tracking (parallelized)
     const auto initial_count_start = Clock::now();
 
-    std::vector<PairCount> thread_pair_counts(num_threads);
+    struct ThreadLocalData {
+        PairCount pair_counts;
+        absl::flat_hash_map<uint64_t, absl::flat_hash_set<size_t>>
+            where_to_update;
+    };
 
-    // Reserve space for each thread's hash map
-    for (auto &tpc : thread_pair_counts) {
-        tpc.reserve(words.size() / num_threads + 1024);
-    }
+    std::vector<ThreadLocalData> thread_data(num_threads);
 
     for (size_t t = 0; t < num_threads; ++t) {
         thread_pool.enqueue([&, t]() {
             const size_t start = t * chunk_size;
             const size_t end = std::min(start + chunk_size, words.size());
 
+            auto &local_counts = thread_data[t].pair_counts;
+            auto &local_positions = thread_data[t].where_to_update;
+
             for (size_t wi = start; wi < end; ++wi) {
                 const size_t mult = word_counts_vec[wi];
-                SymbolNode *node = word_heads[wi];
+                const auto &symbols = word_symbols[wi];
 
-                while (node && node->next) {
+                for (size_t i = 0; i < symbols.size(); ++i) {
+                    if (symbols[i].deleted || symbols[i].next == -1) continue;
+
+                    const size_t next_idx = static_cast<size_t>(symbols[i].next);
+                    if (symbols[next_idx].deleted) continue;
+
                     uint64_t pair_key =
-                        encode_pair(node->token, node->next->token);
-                    thread_pair_counts[t][pair_key] += mult;
-                    node = node->next;
+                        encode_pair(symbols[i].token, symbols[next_idx].token);
+                    local_counts[pair_key] += mult;
+                    local_positions[pair_key].insert(wi);
                 }
             }
         });
@@ -332,12 +347,18 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
 
     thread_pool.wait();
 
-    // Merge thread-local counts
+    // Merge thread-local counts and positions
     PairCount pair_counts;
+    absl::flat_hash_map<uint64_t, absl::flat_hash_set<size_t>> where_to_update;
     pair_counts.reserve(words.size() * 4);
-    for (const auto &tpc : thread_pair_counts) {
-        for (const auto &[pair_key, freq] : tpc) {
+
+    for (const auto &td : thread_data) {
+        for (const auto &[pair_key, freq] : td.pair_counts) {
             pair_counts[pair_key] += freq;
+        }
+        for (const auto &[pair_key, positions] : td.where_to_update) {
+            where_to_update[pair_key].insert(positions.begin(),
+                                             positions.end());
         }
     }
 
@@ -383,81 +404,99 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         ranks[new_token] = static_cast<int>(token_id);
         vocab.push_back(new_token);
 
-        // Merge pairs in linked lists and update pair counts (parallelized)
+        // Get positions where this pair occurs
+        auto pos_it = where_to_update.find(pair_key);
+        if (pos_it == where_to_update.end()) continue;
+
+        // Copy positions before erasing
+        absl::flat_hash_set<size_t> positions = std::move(pos_it->second);
+        where_to_update.erase(pos_it);
+
+        // Merge pairs in symbol vectors and update pair counts (serial)
         const auto merge_start = Clock::now();
 
-        // Thread-local delta maps
-        std::vector<absl::flat_hash_map<uint64_t, int64_t>> thread_deltas(
-            num_threads);
+        absl::flat_hash_map<uint64_t, int64_t> pair_deltas;
+        absl::flat_hash_map<uint64_t, absl::flat_hash_set<size_t>> new_positions;
 
-        for (size_t t = 0; t < num_threads; ++t) {
-            thread_pool.enqueue([&, t]() {
-                const size_t start = t * chunk_size;
-                const size_t end = std::min(start + chunk_size, words.size());
-                auto &local_deltas = thread_deltas[t];
+        for (size_t wi : positions) {
+            if (wi >= word_symbols.size()) continue;
 
-                for (size_t wi = start; wi < end; ++wi) {
-                    const size_t mult = word_counts_vec[wi];
-                    SymbolNode *node = word_heads[wi];
+            const size_t mult = word_counts_vec[wi];
+            auto &symbols = word_symbols[wi];
 
-                    while (node && node->next) {
-                        if (node->token == first_token &&
-                            node->next->token == second_token) {
-                            // Record pairs that will be removed
-                            if (node->prev) {
-                                uint64_t left_pair =
-                                    encode_pair(node->prev->token, first_token);
-                                local_deltas[left_pair] -= mult;
-                            }
-                            if (node->next->next) {
-                                uint64_t right_pair = encode_pair(
-                                    second_token, node->next->next->token);
-                                local_deltas[right_pair] -= mult;
-                            }
-                            local_deltas[pair_key] -= mult;
+            for (size_t i = 0; i < symbols.size(); ++i) {
+                if (symbols[i].deleted || symbols[i].next == -1) continue;
 
-                            // Merge the pair
-                            SymbolNode *to_delete = node->next;
-                            node->token = token_id;
-                            node->next = to_delete->next;
-                            if (to_delete->next) {
-                                to_delete->next->prev = node;
-                            }
-                            // Memory pool handles cleanup, no delete needed
+                const size_t next_idx = static_cast<size_t>(symbols[i].next);
+                if (next_idx >= symbols.size() || symbols[next_idx].deleted)
+                    continue;
 
-                            // Record new pairs
-                            if (node->prev) {
-                                uint64_t new_left_pair =
-                                    encode_pair(node->prev->token, token_id);
-                                local_deltas[new_left_pair] += mult;
-                            }
-                            if (node->next) {
-                                uint64_t new_right_pair =
-                                    encode_pair(token_id, node->next->token);
-                                local_deltas[new_right_pair] += mult;
-                            }
+                if (symbols[i].token == first_token &&
+                    symbols[next_idx].token == second_token) {
+                    // Record pairs that will be removed
+                    if (symbols[i].prev >= 0) {
+                        const size_t prev_idx =
+                            static_cast<size_t>(symbols[i].prev);
+                        if (prev_idx < symbols.size() &&
+                            !symbols[prev_idx].deleted) {
+                            uint64_t left_pair =
+                                encode_pair(symbols[prev_idx].token, first_token);
+                            pair_deltas[left_pair] -= mult;
+                        }
+                    }
+                    if (symbols[next_idx].next >= 0) {
+                        const size_t next_next_idx =
+                            static_cast<size_t>(symbols[next_idx].next);
+                        if (next_next_idx < symbols.size() &&
+                            !symbols[next_next_idx].deleted) {
+                            uint64_t right_pair =
+                                encode_pair(second_token,
+                                           symbols[next_next_idx].token);
+                            pair_deltas[right_pair] -= mult;
+                        }
+                    }
+                    pair_deltas[pair_key] -= mult;
 
-                            // Continue from merged node
-                            if (node->next) {
-                                node = node->next;
-                            } else {
-                                break;
-                            }
-                        } else {
-                            node = node->next;
+                    // Merge the pair: update current symbol
+                    symbols[i].token = token_id;
+                    symbols[i].next = symbols[next_idx].next;
+
+                    // Mark next symbol as deleted
+                    symbols[next_idx].deleted = true;
+
+                    // Update the next symbol's prev pointer
+                    if (symbols[i].next >= 0) {
+                        const size_t new_next_idx =
+                            static_cast<size_t>(symbols[i].next);
+                        if (new_next_idx < symbols.size()) {
+                            symbols[new_next_idx].prev = static_cast<ssize_t>(i);
+                        }
+                    }
+
+                    // Record new pairs
+                    if (symbols[i].prev >= 0) {
+                        const size_t prev_idx =
+                            static_cast<size_t>(symbols[i].prev);
+                        if (prev_idx < symbols.size() &&
+                            !symbols[prev_idx].deleted) {
+                            uint64_t new_left_pair =
+                                encode_pair(symbols[prev_idx].token, token_id);
+                            pair_deltas[new_left_pair] += mult;
+                            new_positions[new_left_pair].insert(wi);
+                        }
+                    }
+                    if (symbols[i].next >= 0) {
+                        const size_t new_next_idx =
+                            static_cast<size_t>(symbols[i].next);
+                        if (new_next_idx < symbols.size() &&
+                            !symbols[new_next_idx].deleted) {
+                            uint64_t new_right_pair =
+                                encode_pair(token_id, symbols[new_next_idx].token);
+                            pair_deltas[new_right_pair] += mult;
+                            new_positions[new_right_pair].insert(wi);
                         }
                     }
                 }
-            });
-        }
-
-        thread_pool.wait();
-
-        // Merge thread-local deltas
-        absl::flat_hash_map<uint64_t, int64_t> pair_deltas;
-        for (const auto &td : thread_deltas) {
-            for (const auto &[pk, delta] : td) {
-                pair_deltas[pk] += delta;
             }
         }
 
@@ -480,6 +519,11 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
             }
         }
 
+        // Update positions map
+        for (auto &[pk, pos_set] : new_positions) {
+            where_to_update[pk].insert(pos_set.begin(), pos_set.end());
+        }
+
         merge_time +=
             std::chrono::duration_cast<DurationMs>(Clock::now() - merge_start);
 
@@ -491,8 +535,6 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
                       << " (freq: " << pair_frequency << ")" << std::endl;
         }
     }
-
-    // Memory pool automatically cleans up all nodes
 
     const DurationMs total_time =
         std::chrono::duration_cast<DurationMs>(Clock::now() - total_start);

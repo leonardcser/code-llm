@@ -3,16 +3,35 @@
 #include "tokenizer.hpp"
 #include <filesystem>
 #include <iostream>
+#include <utility>
 
 int main() {
-    auto paths = dataloader::load_file_paths("data/py150/data", "*.py");
-    dataloader::set_seed(42);
-    dataloader::shuffle(paths);
-    auto [train_paths, val_paths] = dataloader::split(paths, 0.7);
+    std::string train_txt = "train_paths.txt";
+    std::string val_txt = "val_paths.txt";
+
+    std::vector<std::string> train_paths, val_paths;
+    size_t total_size;
+    if (std::filesystem::exists(train_txt) &&
+        std::filesystem::exists(val_txt)) {
+        train_paths = io::load_txt(train_txt);
+        val_paths = io::load_txt(val_txt);
+        total_size = train_paths.size() + val_paths.size();
+    } else {
+        auto paths =
+            dataloader::load_file_paths("data/py150/data", "*.py", 1000);
+        dataloader::set_seed(42);
+        dataloader::shuffle(paths);
+        auto [t, v] = dataloader::split(paths, 0.7);
+        train_paths = std::move(t);
+        val_paths = std::move(v);
+        total_size = paths.size();
+        io::save_txt(train_paths, train_txt);
+        io::save_txt(val_paths, val_txt);
+    }
 
     std::cout << "Training data: " << train_paths.size() << std::endl;
     std::cout << "Validation data: " << val_paths.size() << std::endl;
-    std::cout << "Total data: " << paths.size() << std::endl << std::endl;
+    std::cout << "Total data: " << total_size << std::endl << std::endl;
     std::cout << "Reading files..." << std::endl;
     std::string txt = io::concatenate_files(train_paths);
     const std::string pattern =
@@ -27,7 +46,8 @@ int main() {
     size_t vocab_size = 50000;
     // size_t max_unique_words = 100000;
     size_t max_unique_words = 0;
-    tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words, 1);
+    tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words,
+                         5000);
 
     std::filesystem::create_directories("out");
     tokenizer::save(ranks, "out/tok.bin");

@@ -75,4 +75,32 @@ std::string concatenate_files(const std::vector<std::string>& paths) {
     return result;
 }
 
+void save_txt(const std::vector<std::string>& data, const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file) {
+        throw std::runtime_error("Failed to open " + filename + " for writing");
+    }
+    for (const auto& s : data) {
+        file << s << '\n';
+    }
+    if (!file) {
+        throw std::runtime_error("Failed to write to " + filename);
+    }
+}
+
+std::vector<std::string> load_txt(const std::string& filename) {
+    std::vector<std::string> data;
+    std::ifstream file(filename);
+    if (!file) {
+        throw std::runtime_error("Failed to open " + filename + " for reading");
+    }
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            data.push_back(std::move(line));
+        }
+    }
+    return data;
+}
+
 } // namespace io

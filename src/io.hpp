@@ -2,6 +2,7 @@
 #define IO_HPP
 
 #include <string>
+#include <vector>
 
 namespace io {
 
@@ -12,6 +13,9 @@ bool matches(const std::string &str, const std::string &pat, size_t s = 0, size_
 bool matches_glob(const std::string &str, const std::string &pattern);
 
 std::string concatenate_files(const std::vector<std::string>& paths);
+
+void save_txt(const std::vector<std::string>& data, const std::string& filename);
+std::vector<std::string> load_txt(const std::string& filename);
 
 }
 
