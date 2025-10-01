@@ -1,0 +1,80 @@
+#include "lib/tokenizer.hpp"
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+namespace py = pybind11;
+
+PYBIND11_MODULE(tokenizer_cpp, m) {
+    m.doc() = "Python bindings for the C++ BPE tokenizer";
+
+    // Bind SpecialToken struct
+    py::class_<tokenizer::SpecialToken>(m, "SpecialToken")
+        .def(py::init<>())
+        .def(py::init<std::string, tokenizer::TokenId, bool>(),
+             py::arg("content"), py::arg("id"), py::arg("special") = true)
+        .def_readwrite("content", &tokenizer::SpecialToken::content)
+        .def_readwrite("id", &tokenizer::SpecialToken::id)
+        .def_readwrite("special", &tokenizer::SpecialToken::special);
+
+    // Bind SpecialTokensInput struct
+    py::class_<tokenizer::SpecialTokensInput>(m, "SpecialTokensInput")
+        .def(py::init<>())
+        .def(py::init<std::string, std::string, std::string>(),
+             py::arg("bos_token"), py::arg("eos_token"), py::arg("pad_token"))
+        .def_readwrite("bos_token", &tokenizer::SpecialTokensInput::bos_token)
+        .def_readwrite("eos_token", &tokenizer::SpecialTokensInput::eos_token)
+        .def_readwrite("pad_token", &tokenizer::SpecialTokensInput::pad_token);
+
+    // Bind Tokenizer struct
+    py::class_<tokenizer::Tokenizer>(m, "Tokenizer")
+        .def(py::init<>())
+        .def_readwrite("ranks", &tokenizer::Tokenizer::ranks)
+        .def_readwrite("pattern", &tokenizer::Tokenizer::pattern)
+        .def_readwrite("special_tokens", &tokenizer::Tokenizer::special_tokens)
+        .def_readwrite("unk_token_id", &tokenizer::Tokenizer::unk_token_id)
+        .def_readwrite("bos_token_id", &tokenizer::Tokenizer::bos_token_id)
+        .def_readwrite("eos_token_id", &tokenizer::Tokenizer::eos_token_id)
+        .def_readwrite("pad_token_id", &tokenizer::Tokenizer::pad_token_id)
+        .def("vocab_size", [](const tokenizer::Tokenizer &tok) {
+            return tok.ranks.size();
+        });
+
+    // Bind training function
+    m.def("bpe_train", &tokenizer::bpe_train,
+          py::arg("text"),
+          py::arg("vocab_size"),
+          py::arg("pattern"),
+          py::arg("special_tokens_input") = tokenizer::SpecialTokensInput(),
+          py::arg("max_unique_words") = 0,
+          py::arg("logging_interval") = 1000,
+          "Train a BPE tokenizer on the given text");
+
+    // Bind save/load functions
+    m.def("save", &tokenizer::save,
+          py::arg("tokenizer"),
+          py::arg("filename"),
+          "Save tokenizer to a binary file");
+
+    m.def("load", &tokenizer::load,
+          py::arg("filename"),
+          "Load tokenizer from a binary file");
+
+    // Bind encode function
+    m.def("encode", &tokenizer::encode,
+          py::arg("text"),
+          py::arg("tokenizer"),
+          "Encode text into token IDs");
+
+    // Bind decode function
+    m.def("decode", &tokenizer::decode,
+          py::arg("tokens"),
+          py::arg("tokenizer"),
+          py::arg("skip_special_tokens") = false,
+          "Decode token IDs back into text");
+
+    // Bind visualize function
+    m.def("visualize", &tokenizer::visualize,
+          py::arg("tokens"),
+          py::arg("tokenizer"),
+          "Visualize tokens with boundaries");
+}

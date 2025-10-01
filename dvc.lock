@@ -1,0 +1,76 @@
+schema: '2.0'
+stages:
+  tokenize:
+    cmd: cmake -B tokenizer/build -S tokenizer -DCMAKE_BUILD_TYPE=Release && 
+      cmake --build tokenizer/build -j10 && ./tokenizer/build/tokenize
+    deps:
+    - path: tokenizer/CMakeLists.txt
+      hash: md5
+      md5: 257ef5f6377a8b87b0c3d0a3169466e6
+      size: 3491
+    - path: tokenizer/src/decode.cpp
+      hash: md5
+      md5: 3d3a3f8c7729457e9615b1e448491565
+      size: 1473
+    - path: tokenizer/src/lib/dataloader.cpp
+      hash: md5
+      md5: 53ebf2ee5ada158ea331af08bcf08c69
+      size: 2070
+    - path: tokenizer/src/lib/dataloader.hpp
+      hash: md5
+      md5: 8c74b03b4a1f4f941751083457b5f6ca
+      size: 600
+    - path: tokenizer/src/lib/io.cpp
+      hash: md5
+      md5: b12aceac054d2d2aa7639087c60f57d4
+      size: 6298
+    - path: tokenizer/src/lib/io.hpp
+      hash: md5
+      md5: a8177ebb8c302e566c180770cdc09639
+      size: 965
+    - path: tokenizer/src/lib/text.cpp
+      hash: md5
+      md5: 419b587d7e870e7665231a8376ea9481
+      size: 2872
+    - path: tokenizer/src/lib/text.hpp
+      hash: md5
+      md5: d3d105e19ac1861ea43655dcf6cbfd6e
+      size: 134
+    - path: tokenizer/src/lib/text_test.cpp
+      hash: md5
+      md5: a0f80277b32880bfc87b61b44b417b82
+      size: 952
+    - path: tokenizer/src/lib/threading.cpp
+      hash: md5
+      md5: 5497a70216e75242a6b969862c92fc3b
+      size: 1367
+    - path: tokenizer/src/lib/threading.hpp
+      hash: md5
+      md5: 36ad00dece0ca60fdd9f73d4d3d2e982
+      size: 1134
+    - path: tokenizer/src/lib/tokenizer.cpp
+      hash: md5
+      md5: 0a9c34c64dc14a1b7a4cc669221dba90
+      size: 41406
+    - path: tokenizer/src/lib/tokenizer.hpp
+      hash: md5
+      md5: b66a3b6b1dd621a607e8837489f30465
+      size: 2950
+    - path: tokenizer/src/lib/tokenizer_test.cpp
+      hash: md5
+      md5: 949be426ad564794bbedf39f3ae50122
+      size: 8437
+    - path: tokenizer/src/tokenize.cpp
+      hash: md5
+      md5: 4bdfdb7eb3aa2564f4f56f396c389286
+      size: 4653
+    - path: tokenizer/src/visualize.cpp
+      hash: md5
+      md5: 428235b7f21d2415efbd2a6036bd6929
+      size: 886
+    outs:
+    - path: out/tokenize
+      hash: md5
+      md5: dcee99e2073dbf4d9bf3699a6dd8a613.dir
+      size: 840119036
+      nfiles: 5

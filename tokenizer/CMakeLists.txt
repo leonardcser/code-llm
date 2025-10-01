@@ -43,6 +43,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(reflex)
 
+# pybind11 for Python bindings (v3.0.1)
+FetchContent_Declare(
+    pybind11
+    GIT_REPOSITORY https://github.com/pybind/pybind11.git
+    GIT_TAG v3.0.1
+)
+FetchContent_MakeAvailable(pybind11)
+
 find_package(absl CONFIG REQUIRED)
 
 # Define entrypoints (executables)
@@ -55,7 +63,7 @@ file(GLOB_RECURSE SOURCES "src/*.cpp")
 set(LIB_SOURCES "")
 foreach(SOURCE ${SOURCES})
     get_filename_component(NAME ${SOURCE} NAME_WE)
-    if(NOT ${NAME} IN_LIST ENTRYPOINTS AND NOT ${SOURCE} MATCHES ".*_test\\.cpp$")
+    if(NOT ${NAME} IN_LIST ENTRYPOINTS AND NOT ${SOURCE} MATCHES ".*_test\\.cpp$" AND NOT ${NAME} STREQUAL "python_bindings")
         list(APPEND LIB_SOURCES ${SOURCE})
     endif()
 endforeach()
@@ -96,3 +104,10 @@ add_custom_target(test_all
     COMMAND ${CMAKE_CTEST_COMMAND}
     DEPENDS ${TEST_EXECUTABLES}
 )
+
+# Python bindings
+pybind11_add_module(tokenizer_cpp src/python_bindings.cpp)
+if(LIB_SOURCES)
+    target_link_libraries(tokenizer_cpp PRIVATE llm_lib)
+endif()
+target_link_libraries(tokenizer_cpp PRIVATE nlohmann_json::nlohmann_json ReflexLib)

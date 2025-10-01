@@ -9,16 +9,12 @@ namespace dataloader {
 
 std::mt19937 rng(42);
 
-std::vector<std::string> load_file_paths(const std::string &relative_folder,
+std::vector<std::string> load_file_paths(const std::string &dir_path,
                                          const std::string &glob_pattern,
                                          size_t max_files) {
-    std::filesystem::path source_dir =
-        std::filesystem::path(__FILE__).parent_path().parent_path();
-    std::filesystem::path dir_path = source_dir / relative_folder;
     if (!std::filesystem::exists(dir_path) ||
         !std::filesystem::is_directory(dir_path)) {
-        throw std::runtime_error("Failed to open directory: " +
-                                 dir_path.string());
+        throw std::runtime_error("Failed to open directory: " + dir_path);
     }
     std::vector<std::string> paths;
     size_t count = 0;

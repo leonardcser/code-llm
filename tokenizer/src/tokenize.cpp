@@ -9,33 +9,41 @@
 #include <utility>
 
 int main() {
-    std::string train_txt = "train_paths.txt";
-    std::string val_txt = "val_paths.txt";
+    const unsigned int SEED = 42;
+    const double SPLIT = 0.7;
+    const std::string DATASET_PATH = "data/py150/data";
+    const std::string TRAIN_TXT = "out/tokenize/train_paths.txt";
+    const std::string VAL_TXT = "out/tokenize/val_paths.txt";
+    const std::string TOK_BIN = "out/tokenize/tok.bin";
+    const std::string TRAIN_BIN = "out/tokenize/train.bin";
+    const std::string VAL_BIN = "out/tokenize/val.bin";
+    const size_t VOCAB_SIZE = 30000;
+    const size_t MAX_UNIQUE_WORDS = 0;
 
-    std::vector<std::string> train_paths, val_paths;
-    size_t total_size;
-    if (std::filesystem::exists(train_txt) &&
-        std::filesystem::exists(val_txt)) {
-        train_paths = io::load_txt(train_txt);
-        val_paths = io::load_txt(val_txt);
-        total_size = train_paths.size() + val_paths.size();
-    } else {
-        auto paths =
-            dataloader::load_file_paths("../data/py150/data", "*.py", 10000);
-        dataloader::set_seed(42);
-        dataloader::shuffle(paths);
-        auto [t, v] = dataloader::split(paths, 0.7);
-        train_paths = std::move(t);
-        val_paths = std::move(v);
-        total_size = paths.size();
-        io::save_txt(train_paths, train_txt);
-        io::save_txt(val_paths, val_txt);
-    }
+    // Define special tokens (UNK is automatically added)
+    const tokenizer::SpecialTokensInput special_tokens(
+        "",              // BOS token (empty = unused)
+        "<|endoftext|>", // EOS token
+        "<|pad|>"        // PAD token
+    );
 
+    std::filesystem::create_directories("out/tokenize");
+
+    auto paths = dataloader::load_file_paths(DATASET_PATH, "*.py");
+    dataloader::set_seed(SEED);
+    dataloader::shuffle(paths);
+    auto [t, v] = dataloader::split(paths, SPLIT);
+    io::save_txt(t, TRAIN_TXT);
+    io::save_txt(v, VAL_TXT);
+    std::vector<std::string> train_paths = std::move(t);
+    std::vector<std::string> val_paths = std::move(v);
+
+    size_t total_size = paths.size();
     std::cout << "Training data: " << train_paths.size() << std::endl;
     std::cout << "Validation data: " << val_paths.size() << std::endl;
     std::cout << "Total data: " << total_size << std::endl << std::endl;
     std::cout << "Reading files..." << std::endl;
+
     auto trim_and_ascii = [](const std::string &input) -> std::string {
         std::istringstream iss(input);
         std::ostringstream oss;
@@ -68,6 +76,7 @@ int main() {
         }
         return to_ascii(oss.str());
     };
+
     std::string txt = io::concatenate_files(train_paths, trim_and_ascii);
     const std::string pattern =
         R"( ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
@@ -77,23 +86,10 @@ int main() {
 
     std::cout << "Training tokenizer..." << std::endl;
 
-    // vocab_size = number of BPE merges (excludes 256 byte tokens + special)
-    size_t vocab_size = 50000;
-    // size_t max_unique_words = 100000;
-    size_t max_unique_words = 0;
+    auto tok = tokenizer::bpe_train(txt, VOCAB_SIZE, pattern, special_tokens,
+                                    MAX_UNIQUE_WORDS, 5000);
 
-    // Define special tokens (UNK is automatically added)
-    tokenizer::SpecialTokensInput special_tokens(
-        "",              // BOS token (empty = unused)
-        "<|endoftext|>", // EOS token
-        "<|pad|>"        // PAD token
-    );
-
-    auto tok = tokenizer::bpe_train(txt, vocab_size, pattern, special_tokens,
-                                    max_unique_words, 5000);
-
-    std::filesystem::create_directories("out");
-    tokenizer::save(tok, "out/tok.bin");
+    tokenizer::save(tok, TOK_BIN);
 
     // Encode train data
     std::cout << "\nEncoding training data..." << std::endl;
@@ -111,12 +107,12 @@ int main() {
 
     // Save train tokens
     std::cout << "\nSaving train tokens..." << std::endl;
-    io::save_tokens(train_tokens, "out/train.bin");
+    io::save_tokens(train_tokens, TRAIN_BIN);
     std::cout << "Saved to out/train.bin" << std::endl;
 
     // Save val tokens
     std::cout << "Saving val tokens..." << std::endl;
-    io::save_tokens(val_tokens, "out/val.bin");
+    io::save_tokens(val_tokens, VAL_BIN);
     std::cout << "Saved to out/val.bin" << std::endl;
 
     std::cout << "\nTraining complete!" << std::endl;
