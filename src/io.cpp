@@ -150,4 +150,41 @@ std::vector<std::string> load_txt(const std::string &filename) {
     return data;
 }
 
+void save_tokens(const std::vector<tokenizer::TokenId> &tokens,
+                 const std::string &filename) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to open " + filename + " for writing");
+    }
+    file.write(reinterpret_cast<const char *>(tokens.data()),
+               tokens.size() * sizeof(tokenizer::TokenId));
+    if (!file) {
+        throw std::runtime_error("Failed to write to " + filename);
+    }
+}
+
+std::vector<tokenizer::TokenId> load_tokens(const std::string &filename) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to open " + filename + " for reading");
+    }
+
+    file.seekg(0, std::ios::end);
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    if (size % sizeof(tokenizer::TokenId) != 0) {
+        throw std::runtime_error("Invalid token file size: " + filename);
+    }
+
+    std::vector<tokenizer::TokenId> tokens(size / sizeof(tokenizer::TokenId));
+    file.read(reinterpret_cast<char *>(tokens.data()), size);
+
+    if (!file) {
+        throw std::runtime_error("Failed to read from " + filename);
+    }
+
+    return tokens;
+}
+
 } // namespace io

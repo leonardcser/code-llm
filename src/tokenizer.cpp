@@ -1,5 +1,4 @@
 #include "tokenizer.hpp"
-#include "text.hpp"
 #include "threading.hpp"
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
@@ -13,8 +12,10 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <queue>
 #include <reflex/matcher.h>
 #include <reflex/pattern.h>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -194,11 +195,6 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     }
 
     const auto total_start = Clock::now();
-
-    const auto normalize_start = Clock::now();
-    text = to_ascii(text);
-    const DurationMs normalize_time =
-        std::chrono::duration_cast<DurationMs>(Clock::now() - normalize_start);
 
     ranks.reserve(vocab_size);
 
@@ -571,8 +567,6 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
 
     std::cout << "[bpe_train] BPE training completed. Final vocabulary size: "
               << ranks.size() << std::endl;
-    std::cout << "[bpe_train] normalize: " << normalize_time.count() << " ms"
-              << std::endl;
     std::cout << "[bpe_train] tokenize_to_words: " << tokenize_time.count()
               << " ms" << std::endl;
     if (sampling_time.count() > 0) {
@@ -590,10 +584,36 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
               << std::endl;
 }
 
-// BPE encoding with direct token lookup
+// Helper struct for merge priority queue
+struct Merge {
+    size_t pos;
+    int rank;
+    TokenId new_id;
+
+    bool operator<(const Merge &other) const {
+        // Min heap: lower rank = higher priority
+        if (rank != other.rank) {
+            return rank > other.rank; // Reverse for min heap
+        }
+        return pos > other.pos;
+    }
+};
+
+// Symbol for linked list approach
+struct EncodeSymbol {
+    TokenId c;
+    ssize_t prev;
+    ssize_t next;
+
+    EncodeSymbol(TokenId token, ssize_t p, ssize_t n)
+        : c(token), prev(p), next(n) {}
+};
+
+// BPE encoding with priority queue (optimized like Rust implementation)
 std::vector<TokenId>
 byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
-                 const std::unordered_map<TokenId, std::string> &decoder) {
+                 const absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
+                     &merge_map) {
     if (piece.empty()) {
         return {};
     }
@@ -610,83 +630,104 @@ byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
         return {static_cast<TokenId>(c)};
     }
 
-    // Convert to vector of character tokens initially
-    std::vector<TokenId> tokens;
-    tokens.reserve(piece.length());
-    for (unsigned char c : piece) {
-        tokens.push_back(static_cast<TokenId>(c));
+    // Convert to symbols with prev/next links
+    std::vector<EncodeSymbol> symbols;
+    symbols.reserve(piece.length());
+    for (size_t i = 0; i < piece.length(); ++i) {
+        unsigned char c = static_cast<unsigned char>(piece[i]);
+        ssize_t prev_idx = (i == 0) ? -1 : static_cast<ssize_t>(i - 1);
+        ssize_t next_idx = (i == piece.length() - 1)
+                               ? -1
+                               : static_cast<ssize_t>(i + 1);
+        symbols.emplace_back(static_cast<TokenId>(c), prev_idx, next_idx);
     }
 
-    // Apply BPE merges
-    bool merged = true;
-    while (merged && tokens.size() > 1) {
-        merged = false;
-        std::string best_pair;
-        int best_rank = -1;
-        size_t best_pos = 0;
-
-        // Find the highest-ranking pair to merge
-        for (size_t i = 0; i < tokens.size() - 1; ++i) {
-            const std::string *left_piece = nullptr;
-            const std::string *right_piece = nullptr;
-            std::string left_fallback;
-            std::string right_fallback;
-
-            auto left_it = decoder.find(tokens[i]);
-            if (left_it != decoder.end()) {
-                left_piece = &left_it->second;
-            } else if (tokens[i] < 256) {
-                left_fallback.assign(1, static_cast<char>(tokens[i]));
-                left_piece = &left_fallback;
-            } else {
-                continue;
-            }
-
-            auto right_it = decoder.find(tokens[i + 1]);
-            if (right_it != decoder.end()) {
-                right_piece = &right_it->second;
-            } else if (tokens[i + 1] < 256) {
-                right_fallback.assign(1, static_cast<char>(tokens[i + 1]));
-                right_piece = &right_fallback;
-            } else {
-                continue;
-            }
-
-            std::string pair;
-            pair.reserve(left_piece->size() + right_piece->size());
-            pair.append(*left_piece);
-            pair.append(*right_piece);
-
-            auto pair_it = ranks.find(pair);
-            if (pair_it != ranks.end()) {
-                if (best_rank == -1 || pair_it->second < best_rank) {
-                    best_pair = pair;
-                    best_rank = pair_it->second;
-                    best_pos = i;
-                    merged = true;
-                }
-            }
-        }
-
-        // Apply the best merge
-        if (merged) {
-            TokenId new_token = static_cast<TokenId>(best_rank);
-            std::vector<TokenId> new_tokens;
-            new_tokens.reserve(tokens.size());
-
-            for (size_t i = 0; i < tokens.size(); ++i) {
-                if (i == best_pos) {
-                    new_tokens.push_back(new_token);
-                    ++i; // Skip the next token as it's part of the merge
-                } else {
-                    new_tokens.push_back(tokens[i]);
-                }
-            }
-            tokens = std::move(new_tokens);
+    // Build priority queue of merges
+    std::priority_queue<Merge> queue;
+    for (size_t i = 0; i + 1 < symbols.size(); ++i) {
+        uint64_t pair_key = encode_pair(symbols[i].c, symbols[i + 1].c);
+        auto merge_it = merge_map.find(pair_key);
+        if (merge_it != merge_map.end()) {
+            queue.push({i, merge_it->second.first, merge_it->second.second});
         }
     }
 
-    return tokens;
+    // Process merges
+    while (!queue.empty()) {
+        Merge top = queue.top();
+        queue.pop();
+
+        // Skip if position is invalid or symbol was already merged
+        if (top.pos >= symbols.size() || symbols[top.pos].next == -1) {
+            continue;
+        }
+
+        size_t next_pos = static_cast<size_t>(symbols[top.pos].next);
+        if (next_pos >= symbols.size()) {
+            continue;
+        }
+
+        // Verify this is still the right pair (not stale queue entry)
+        uint64_t current_pair =
+            encode_pair(symbols[top.pos].c, symbols[next_pos].c);
+        auto verify_it = merge_map.find(current_pair);
+        if (verify_it == merge_map.end() ||
+            verify_it->second.second != top.new_id) {
+            continue;
+        }
+
+        // Merge: update current symbol
+        symbols[top.pos].c = top.new_id;
+        symbols[top.pos].next = symbols[next_pos].next;
+
+        // Update next symbol's prev if it exists
+        if (symbols[next_pos].next >= 0) {
+            size_t next_next_pos =
+                static_cast<size_t>(symbols[next_pos].next);
+            if (next_next_pos < symbols.size()) {
+                symbols[next_next_pos].prev = static_cast<ssize_t>(top.pos);
+            }
+        }
+
+        // Mark next symbol as removed
+        symbols[next_pos].next = -2; // Use -2 to mark as deleted
+
+        // Add new merge with previous symbol
+        if (symbols[top.pos].prev >= 0) {
+            size_t prev_pos = static_cast<size_t>(symbols[top.pos].prev);
+            uint64_t new_pair = encode_pair(symbols[prev_pos].c, top.new_id);
+            auto new_merge = merge_map.find(new_pair);
+            if (new_merge != merge_map.end()) {
+                queue.push({prev_pos, new_merge->second.first,
+                            new_merge->second.second});
+            }
+        }
+
+        // Add new merge with next symbol
+        if (symbols[top.pos].next >= 0) {
+            size_t new_next_pos = static_cast<size_t>(symbols[top.pos].next);
+            if (new_next_pos < symbols.size()) {
+                uint64_t new_pair =
+                    encode_pair(top.new_id, symbols[new_next_pos].c);
+                auto new_merge = merge_map.find(new_pair);
+                if (new_merge != merge_map.end()) {
+                    queue.push({top.pos, new_merge->second.first,
+                                new_merge->second.second});
+                }
+            }
+        }
+    }
+
+    // Collect non-deleted symbols
+    std::vector<TokenId> result;
+    result.reserve(symbols.size());
+    for (const auto &sym : symbols) {
+        if (sym.next != -2) { // Not deleted
+            result.push_back(sym.c);
+        }
+    }
+
+    return result;
 }
 
 // Build decoder map helper function
@@ -702,6 +743,63 @@ build_decoder_map(const tokenizer::Ranks &ranks) {
     return decoder;
 }
 
+// Build merge map: maps (token1, token2) -> (rank, merged_token_id)
+// Reconstructs merges from vocabulary by finding the correct split for each token
+absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
+build_merge_map(const tokenizer::Ranks &ranks) {
+    absl::flat_hash_map<uint64_t, std::pair<int, TokenId>> merge_map;
+    merge_map.reserve(ranks.size());
+
+    // For each token, find the split where both parts were created earliest
+    // (i.e., max(left_rank, right_rank) is minimized)
+    for (const auto &[token_str, rank] : ranks) {
+        if (token_str.length() <= 1 || rank < 256) {
+            continue; // Skip base byte tokens
+        }
+
+        // Find the best split: the one where both parts existed earliest
+        int best_max_rank = INT_MAX;
+        TokenId best_left_id = 0;
+        TokenId best_right_id = 0;
+        bool found = false;
+
+        for (size_t split = 1; split < token_str.length(); ++split) {
+            std::string left = token_str.substr(0, split);
+            std::string right = token_str.substr(split);
+
+            auto left_it = ranks.find(left);
+            if (left_it == ranks.end()) continue;
+
+            auto right_it = ranks.find(right);
+            if (right_it == ranks.end()) continue;
+
+            int left_rank = left_it->second;
+            int right_rank = right_it->second;
+
+            // Both parts must have been created before this token
+            if (left_rank >= rank || right_rank >= rank) continue;
+
+            int max_rank = std::max(left_rank, right_rank);
+
+            // Pick the split where both parts were created earliest
+            if (max_rank < best_max_rank) {
+                best_max_rank = max_rank;
+                best_left_id = static_cast<TokenId>(left_rank);
+                best_right_id = static_cast<TokenId>(right_rank);
+                found = true;
+            }
+        }
+
+        if (found) {
+            uint64_t pair_key = encode_pair(best_left_id, best_right_id);
+            // Use the token's rank as the merge rank
+            merge_map[pair_key] = {rank, static_cast<TokenId>(rank)};
+        }
+    }
+
+    return merge_map;
+}
+
 // encode function with direct lookup
 std::vector<TokenId> tokenizer::encode(const std::string &text,
                                        const Ranks &ranks,
@@ -709,7 +807,15 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
     std::vector<TokenId> result;
     result.reserve(text.length() / 2);
 
-    auto decoder = build_decoder_map(ranks);
+    // Build and cache merge map (thread-local, built once per tokenizer)
+    static thread_local absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
+        cached_merge_map;
+    static thread_local const Ranks *cached_ranks = nullptr;
+
+    if (cached_ranks != &ranks) {
+        cached_merge_map = build_merge_map(ranks);
+        cached_ranks = &ranks;
+    }
 
     if (!pattern.empty()) {
         reflex::Pattern *pat = get_pattern(pattern);
@@ -727,7 +833,7 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
             } else {
                 // Fall back to BPE encoding
                 std::vector<TokenId> encoded =
-                    byte_pair_encode(piece, ranks, decoder);
+                    byte_pair_encode(piece, ranks, cached_merge_map);
                 result.insert(result.end(), encoded.begin(), encoded.end());
             }
         }
@@ -739,7 +845,7 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
             result.push_back(static_cast<TokenId>(it->second));
         } else {
             std::vector<TokenId> encoded =
-                byte_pair_encode(piece, ranks, decoder);
+                byte_pair_encode(piece, ranks, cached_merge_map);
             result.insert(result.end(), encoded.begin(), encoded.end());
         }
     }

@@ -1,5 +1,6 @@
 #include "dataloader.hpp"
 #include "io.hpp"
+#include "text.hpp"
 #include "tokenizer.hpp"
 #include <filesystem>
 #include <functional>
@@ -34,7 +35,7 @@ int main() {
     std::cout << "Validation data: " << val_paths.size() << std::endl;
     std::cout << "Total data: " << total_size << std::endl << std::endl;
     std::cout << "Reading files..." << std::endl;
-    auto trim_comments = [](const std::string &input) -> std::string {
+    auto trim_and_ascii = [](const std::string &input) -> std::string {
         std::istringstream iss(input);
         std::ostringstream oss;
         std::string line;
@@ -64,9 +65,9 @@ int main() {
             }
             oss << line << '\n';
         }
-        return oss.str();
+        return to_ascii(oss.str());
     };
-    std::string txt = io::concatenate_files(train_paths, trim_comments);
+    std::string txt = io::concatenate_files(train_paths, trim_and_ascii);
     const std::string pattern =
         R"( ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
     // std::string pattern =
@@ -80,11 +81,35 @@ int main() {
     // size_t max_unique_words = 100000;
     size_t max_unique_words = 0;
     tokenizer::bpe_train(txt, vocab_size, pattern, ranks, max_unique_words,
-                         1000);
+                         5000);
 
     std::filesystem::create_directories("out");
     tokenizer::Tokenizer tok{ranks, pattern};
     tokenizer::save(tok, "out/tok.bin");
+
+    // Encode train data
+    std::cout << "\nEncoding training data..." << std::endl;
+    std::string train_txt_concat =
+        io::concatenate_files(train_paths, trim_and_ascii);
+    auto train_tokens = tokenizer::encode(train_txt_concat, ranks, pattern);
+    std::cout << "Train tokens: " << train_tokens.size() << std::endl;
+
+    // Encode val data
+    std::cout << "Encoding validation data..." << std::endl;
+    std::string val_txt_concat =
+        io::concatenate_files(val_paths, trim_and_ascii);
+    auto val_tokens = tokenizer::encode(val_txt_concat, ranks, pattern);
+    std::cout << "Val tokens: " << val_tokens.size() << std::endl;
+
+    // Save train tokens
+    std::cout << "\nSaving train tokens..." << std::endl;
+    io::save_tokens(train_tokens, "out/train.bin");
+    std::cout << "Saved to out/train.bin" << std::endl;
+
+    // Save val tokens
+    std::cout << "Saving val tokens..." << std::endl;
+    io::save_tokens(val_tokens, "out/val.bin");
+    std::cout << "Saved to out/val.bin" << std::endl;
 
     return 0;
 }

@@ -1,6 +1,7 @@
 #ifndef IO_HPP
 #define IO_HPP
 
+#include "tokenizer.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -22,6 +23,10 @@ std::string concatenate_files(
 void save_txt(const std::vector<std::string> &data,
               const std::string &filename);
 std::vector<std::string> load_txt(const std::string &filename);
+
+void save_tokens(const std::vector<tokenizer::TokenId> &tokens,
+                 const std::string &filename);
+std::vector<tokenizer::TokenId> load_tokens(const std::string &filename);
 
 } // namespace io
 
