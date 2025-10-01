@@ -46,10 +46,10 @@ FetchContent_MakeAvailable(reflex)
 find_package(absl CONFIG REQUIRED)
 
 # Define entrypoints (executables)
-set(ENTRYPOINTS main visualize)
+set(ENTRYPOINTS tokenize visualize decode)
 
 # Find all source files
-file(GLOB SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 # Separate entrypoint files from library sources
 set(LIB_SOURCES "")
@@ -77,7 +77,7 @@ foreach(ENTRYPOINT ${ENTRYPOINTS})
 endforeach()
 
 # Test executables
-file(GLOB TEST_SOURCES "src/*_test.cpp")
+file(GLOB_RECURSE TEST_SOURCES "src/*_test.cpp")
 set(TEST_EXECUTABLES "")
 foreach(TEST_SOURCE ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)

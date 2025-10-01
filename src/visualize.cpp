@@ -1,5 +1,5 @@
-#include "io.hpp"
-#include "tokenizer.hpp"
+#include "lib/io.hpp"
+#include "lib/tokenizer.hpp"
 #include <iostream>
 #include <string>
 #include <vector>

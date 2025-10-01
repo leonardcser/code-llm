@@ -1,7 +1,7 @@
-#include "dataloader.hpp"
-#include "io.hpp"
-#include "text.hpp"
-#include "tokenizer.hpp"
+#include "lib/dataloader.hpp"
+#include "lib/io.hpp"
+#include "lib/text.hpp"
+#include "lib/tokenizer.hpp"
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -20,7 +20,7 @@ int main() {
         val_paths = io::load_txt(val_txt);
         total_size = train_paths.size() + val_paths.size();
     } else {
-        auto paths = dataloader::load_file_paths("data/py150/data", "*.py");
+        auto paths = dataloader::load_file_paths("../data/py150/data", "*.py");
         dataloader::set_seed(42);
         dataloader::shuffle(paths);
         auto [t, v] = dataloader::split(paths, 0.7);
@@ -82,10 +82,9 @@ int main() {
     size_t max_unique_words = 0;
 
     // Define special tokens (UNK is automatically added)
-    tokenizer::SpecialTokensInput special_tokens(
-        "",                 // No BOS token
-        "<|endoftext|>",    // EOS token
-        "<|pad|>"           // PAD token
+    tokenizer::SpecialTokensInput special_tokens("<|startoftext|>", // BOS token
+                                                 "<|endoftext|>",   // EOS token
+                                                 "<|pad|>"          // PAD token
     );
 
     auto tok = tokenizer::bpe_train(txt, vocab_size, pattern, special_tokens,

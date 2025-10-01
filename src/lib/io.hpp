@@ -18,7 +18,8 @@ bool matches_glob(const std::string &str, const std::string &pattern);
 std::string concatenate_files(
     const std::vector<std::string> &paths,
     std::function<std::string(const std::string &)> transform =
-        [](const std::string &s) { return s; });
+        [](const std::string &s) { return s; },
+    const std::string &separator = "");
 
 void save_txt(const std::vector<std::string> &data,
               const std::string &filename);

@@ -57,9 +57,12 @@ bool matches_glob(const std::string &str, const std::string &pattern) {
 
 std::string
 concatenate_files(const std::vector<std::string> &paths,
-                  std::function<std::string(const std::string &)> transform) {
+                  std::function<std::string(const std::string &)> transform,
+                  const std::string &separator) {
     std::string result;
     size_t total_size = 0;
+    size_t separator_overhead = !separator.empty() ? separator.size() * paths.size() : 0;
+
     // First pass: calculate total size
     for (const auto &path : paths) {
         if (std::filesystem::exists(path) &&
@@ -67,7 +70,7 @@ concatenate_files(const std::vector<std::string> &paths,
             total_size += std::filesystem::file_size(path);
         }
     }
-    result.reserve(total_size);
+    result.reserve(total_size + separator_overhead);
 
     // Parallel reading using thread pool
     const size_t num_threads = std::thread::hardware_concurrency();
@@ -105,6 +108,9 @@ concatenate_files(const std::vector<std::string> &paths,
                             (std::istreambuf_iterator<char>(file.rdbuf())),
                             std::istreambuf_iterator<char>());
                         thread_results[t] += transform(content);
+                        if (!separator.empty()) {
+                            thread_results[t] += separator;
+                        }
                     }
                 }
             }
