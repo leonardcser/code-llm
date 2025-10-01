@@ -6,6 +6,78 @@ int main() {
     std::string test_text = "hello world hello";
     std::string pattern = R"(\w+|\s+)";
 
+    // Encode-decode roundtrip tests without special tokens
+    {
+        tokenizer::SpecialTokensInput special_tokens("", "", "");
+        auto tokenizer = tokenizer::bpe_train(test_text, 300, pattern, special_tokens, 0, 1000);
+
+        // Test case 1: Simple sentence
+        std::string text1 = "hello world";
+        auto tokens1 = tokenizer::encode(text1, tokenizer);
+        auto decoded1 = tokenizer::decode(tokens1, tokenizer, false);
+        assert(decoded1 == text1);
+
+        // Test case 2: Sentence with punctuation
+        std::string text2 = "This is a test. Isn't it?";
+        auto tokens2 = tokenizer::encode(text2, tokenizer);
+        auto decoded2 = tokenizer::decode(tokens2, tokenizer, false);
+        assert(decoded2 == text2);
+
+        // Test case 3: Numbers and special chars
+        std::string text3 = "123 45! @#$%";
+        auto tokens3 = tokenizer::encode(text3, tokenizer);
+        auto decoded3 = tokenizer::decode(tokens3, tokenizer, false);
+        assert(decoded3 == text3);
+
+        // Test case 4: Empty string
+        std::string text4 = "";
+        auto tokens4 = tokenizer::encode(text4, tokenizer);
+        auto decoded4 = tokenizer::decode(tokens4, tokenizer, false);
+        assert(decoded4 == text4);
+
+        // Test case 5: Single word
+        std::string text5 = "tokenizer";
+        auto tokens5 = tokenizer::encode(text5, tokenizer);
+        auto decoded5 = tokenizer::decode(tokens5, tokenizer, false);
+        assert(decoded5 == text5);
+    }
+
+    // Encode-decode roundtrip tests with special tokens
+    {
+        tokenizer::SpecialTokensInput special_tokens("", "<|endoftext|>", "<|pad|>");
+        auto tokenizer = tokenizer::bpe_train(test_text, 300, pattern, special_tokens, 0, 1000);
+
+        // Test case 1: Simple sentence with EOS
+        std::string text1 = "hello world<|endoftext|>";
+        auto tokens1 = tokenizer::encode(text1, tokenizer);
+        auto decoded1 = tokenizer::decode(tokens1, tokenizer, false);
+        assert(decoded1 == text1);
+
+        // Test case 2: Sentence with PAD
+        std::string text2 = "This is a test<|pad|>";
+        auto tokens2 = tokenizer::encode(text2, tokenizer);
+        auto decoded2 = tokenizer::decode(tokens2, tokenizer, false);
+        assert(decoded2 == text2);
+
+        // Test case 3: Multiple special tokens
+        std::string text3 = "<|endoftext|><|pad|>hello<|endoftext|>";
+        auto tokens3 = tokenizer::encode(text3, tokenizer);
+        auto decoded3 = tokenizer::decode(tokens3, tokenizer, false);
+        assert(decoded3 == text3);
+
+        // Test case 4: Text with unknown token
+        std::string text4 = "unknown_token<|endoftext|>";
+        auto tokens4 = tokenizer::encode(text4, tokenizer);
+        auto decoded4 = tokenizer::decode(tokens4, tokenizer, false);
+        assert(decoded4.find("<unk>") != std::string::npos); // Should replace unknown with <unk>
+
+        // Test case 5: Empty string with special
+        std::string text5 = "<|endoftext|>";
+        auto tokens5 = tokenizer::encode(text5, tokenizer);
+        auto decoded5 = tokenizer::decode(tokens5, tokenizer, false);
+        assert(decoded5 == text5);
+    }
+
     // Test 1: BPE train with special tokens
     {
         tokenizer::SpecialTokensInput special_tokens(

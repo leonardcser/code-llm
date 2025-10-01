@@ -917,44 +917,72 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
         return {special_it->second.id};
     }
 
-    // Build a simple split on special tokens
-    // For now, we do a simple approach: check for special tokens and split
+    // Fast path: if no special tokens, encode directly
+    if (tokenizer.special_tokens.empty()) {
+        return encode_piece(text, tokenizer.ranks, tokenizer.pattern);
+    }
+
+    // Pre-scan text once to find all special token positions
+    struct SpecialMatch {
+        size_t pos;
+        size_t len;
+        TokenId id;
+    };
+    std::vector<SpecialMatch> matches;
+    matches.reserve(text.length() / 100); // Estimate
+
+    for (const auto &[token_str, st] : tokenizer.special_tokens) {
+        size_t search_pos = 0;
+        while ((search_pos = text.find(token_str, search_pos)) !=
+               std::string::npos) {
+            matches.push_back({search_pos, token_str.length(), st.id});
+            search_pos += token_str.length();
+        }
+    }
+
+    // Sort matches by position
+    std::sort(matches.begin(), matches.end(),
+              [](const SpecialMatch &a, const SpecialMatch &b) {
+                  return a.pos < b.pos;
+              });
+
+    // Remove overlapping matches (keep first occurrence)
+    if (!matches.empty()) {
+        std::vector<SpecialMatch> filtered;
+        filtered.reserve(matches.size());
+        filtered.push_back(matches[0]);
+        for (size_t i = 1; i < matches.size(); ++i) {
+            if (matches[i].pos >= filtered.back().pos + filtered.back().len) {
+                filtered.push_back(matches[i]);
+            }
+        }
+        matches = std::move(filtered);
+    }
+
+    // Now encode text segments between special tokens
     std::vector<TokenId> result;
+    result.reserve(text.length() / 2);
     size_t pos = 0;
 
-    while (pos < text.length()) {
-        // Check if we're at a special token
-        bool found_special = false;
-        for (const auto &[token_str, st] : tokenizer.special_tokens) {
-            if (pos + token_str.length() <= text.length() &&
-                text.substr(pos, token_str.length()) == token_str) {
-                // Found a special token
-                result.push_back(st.id);
-                pos += token_str.length();
-                found_special = true;
-                break;
-            }
+    for (const auto &match : matches) {
+        // Encode text before special token
+        if (match.pos > pos) {
+            std::string piece = text.substr(pos, match.pos - pos);
+            std::vector<TokenId> encoded =
+                encode_piece(piece, tokenizer.ranks, tokenizer.pattern);
+            result.insert(result.end(), encoded.begin(), encoded.end());
         }
+        // Add special token
+        result.push_back(match.id);
+        pos = match.pos + match.len;
+    }
 
-        if (!found_special) {
-            // Find the next special token position
-            size_t next_special_pos = text.length();
-            for (const auto &[token_str, _] : tokenizer.special_tokens) {
-                size_t found_pos = text.find(token_str, pos);
-                if (found_pos != std::string::npos) {
-                    next_special_pos = std::min(next_special_pos, found_pos);
-                }
-            }
-
-            // Encode the text up to the next special token
-            std::string piece = text.substr(pos, next_special_pos - pos);
-            if (!piece.empty()) {
-                std::vector<TokenId> encoded =
-                    encode_piece(piece, tokenizer.ranks, tokenizer.pattern);
-                result.insert(result.end(), encoded.begin(), encoded.end());
-            }
-            pos = next_special_pos;
-        }
+    // Encode remaining text
+    if (pos < text.length()) {
+        std::string piece = text.substr(pos);
+        std::vector<TokenId> encoded =
+            encode_piece(piece, tokenizer.ranks, tokenizer.pattern);
+        result.insert(result.end(), encoded.begin(), encoded.end());
     }
 
     return result;

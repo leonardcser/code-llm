@@ -20,7 +20,8 @@ int main() {
         val_paths = io::load_txt(val_txt);
         total_size = train_paths.size() + val_paths.size();
     } else {
-        auto paths = dataloader::load_file_paths("../data/py150/data", "*.py");
+        auto paths =
+            dataloader::load_file_paths("../data/py150/data", "*.py", 10000);
         dataloader::set_seed(42);
         dataloader::shuffle(paths);
         auto [t, v] = dataloader::split(paths, 0.7);
@@ -82,24 +83,14 @@ int main() {
     size_t max_unique_words = 0;
 
     // Define special tokens (UNK is automatically added)
-    tokenizer::SpecialTokensInput special_tokens("",              // BOS token (empty = unused)
-                                                 "<|endoftext|>", // EOS token
-                                                 "<|pad|>"        // PAD token
+    tokenizer::SpecialTokensInput special_tokens(
+        "",              // BOS token (empty = unused)
+        "<|endoftext|>", // EOS token
+        "<|pad|>"        // PAD token
     );
 
     auto tok = tokenizer::bpe_train(txt, vocab_size, pattern, special_tokens,
                                     max_unique_words, 5000);
-
-    std::cout << "\nTokenizer created with special tokens:" << std::endl;
-    std::cout << "  BPE vocab size (ranks): " << tok.ranks.size() << std::endl;
-    std::cout << "  Special tokens: " << tok.special_tokens.size() << std::endl;
-    std::cout << "  Total vocab size: " << tok.ranks.size() + tok.special_tokens.size() << std::endl;
-    std::cout << "  UNK: " << tok.unk_token_id << std::endl;
-    if (tok.bos_token_id != 0) {
-        std::cout << "  BOS: " << tok.bos_token_id << std::endl;
-    }
-    std::cout << "  EOS: " << tok.eos_token_id << std::endl;
-    std::cout << "  PAD: " << tok.pad_token_id << std::endl;
 
     std::filesystem::create_directories("out");
     tokenizer::save(tok, "out/tok.bin");
