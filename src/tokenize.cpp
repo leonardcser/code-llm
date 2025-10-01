@@ -82,19 +82,22 @@ int main() {
     size_t max_unique_words = 0;
 
     // Define special tokens (UNK is automatically added)
-    tokenizer::SpecialTokensInput special_tokens("<|startoftext|>", // BOS token
-                                                 "<|endoftext|>",   // EOS token
-                                                 "<|pad|>"          // PAD token
+    tokenizer::SpecialTokensInput special_tokens("",              // BOS token (empty = unused)
+                                                 "<|endoftext|>", // EOS token
+                                                 "<|pad|>"        // PAD token
     );
 
     auto tok = tokenizer::bpe_train(txt, vocab_size, pattern, special_tokens,
                                     max_unique_words, 5000);
 
     std::cout << "\nTokenizer created with special tokens:" << std::endl;
-    std::cout << "  Vocab size: " << tok.ranks.size() << std::endl;
+    std::cout << "  BPE vocab size (ranks): " << tok.ranks.size() << std::endl;
     std::cout << "  Special tokens: " << tok.special_tokens.size() << std::endl;
+    std::cout << "  Total vocab size: " << tok.ranks.size() + tok.special_tokens.size() << std::endl;
     std::cout << "  UNK: " << tok.unk_token_id << std::endl;
-    std::cout << "  BOS: " << tok.bos_token_id << std::endl;
+    if (tok.bos_token_id != 0) {
+        std::cout << "  BOS: " << tok.bos_token_id << std::endl;
+    }
     std::cout << "  EOS: " << tok.eos_token_id << std::endl;
     std::cout << "  PAD: " << tok.pad_token_id << std::endl;
 
@@ -104,14 +107,14 @@ int main() {
     // Encode train data
     std::cout << "\nEncoding training data..." << std::endl;
     std::string train_txt_concat =
-        io::concatenate_files(train_paths, trim_and_ascii);
+        io::concatenate_files(train_paths, trim_and_ascii, "<|endoftext|>");
     auto train_tokens = tokenizer::encode(train_txt_concat, tok);
     std::cout << "Train tokens: " << train_tokens.size() << std::endl;
 
     // Encode val data
     std::cout << "Encoding validation data..." << std::endl;
     std::string val_txt_concat =
-        io::concatenate_files(val_paths, trim_and_ascii);
+        io::concatenate_files(val_paths, trim_and_ascii, "<|endoftext|>");
     auto val_tokens = tokenizer::encode(val_txt_concat, tok);
     std::cout << "Val tokens: " << val_tokens.size() << std::endl;
 
