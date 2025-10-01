@@ -15,7 +15,6 @@
 #include <queue>
 #include <reflex/matcher.h>
 #include <reflex/pattern.h>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -187,19 +186,26 @@ constexpr TokenId second_from_pair(uint64_t key) {
     return static_cast<TokenId>(key & 0xffffffffu);
 }
 
-void tokenizer::bpe_train(std::string &text, size_t vocab_size,
-                          const std::string &pattern, Ranks &ranks,
-                          size_t max_unique_words, size_t logging_interval) {
-    if (vocab_size < 256) {
-        throw std::invalid_argument("vocab_size must be at least 256");
+tokenizer::Tokenizer
+tokenizer::bpe_train(std::string &text, size_t vocab_size,
+                     const std::string &pattern,
+                     const SpecialTokensInput &special_tokens_input,
+                     size_t max_unique_words, size_t logging_interval) {
+    // vocab_size now means number of BPE merges (excludes 256 byte tokens)
+    if (vocab_size == 0) {
+        throw std::invalid_argument("vocab_size must be at least 1");
     }
 
     const auto total_start = Clock::now();
 
-    ranks.reserve(vocab_size);
+    // Total vocab will be: 256 bytes + vocab_size BPE merges
+    const size_t total_bpe_vocab = 256 + vocab_size;
+
+    Ranks ranks;
+    ranks.reserve(total_bpe_vocab);
 
     std::vector<std::string> vocab;
-    vocab.reserve(vocab_size);
+    vocab.reserve(total_bpe_vocab);
 
     for (int i = 0; i < 256; ++i) {
         std::string byteToken = std::string(1, static_cast<char>(i));
@@ -397,7 +403,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     pair_count_time += std::chrono::duration_cast<DurationMs>(
         Clock::now() - initial_count_start);
 
-    while (ranks.size() < vocab_size && !pq.empty()) {
+    while (ranks.size() < total_bpe_vocab && !pq.empty()) {
         ++iteration_count;
 
         // Find best pair
@@ -556,7 +562,7 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
         // Optional: Progress reporting
         if (ranks.size() % logging_interval == 0) {
             std::cout << "[bpe_train] Vocab size: " << ranks.size() << "/"
-                      << vocab_size << ", merged: " << vocab[first_token]
+                      << total_bpe_vocab << ", merged: " << vocab[first_token]
                       << " + " << vocab[second_token]
                       << " (freq: " << pair_frequency << ")" << std::endl;
         }
@@ -582,6 +588,56 @@ void tokenizer::bpe_train(std::string &text, size_t vocab_size,
     std::cout << "[bpe_train] iterations: " << iteration_count << std::endl;
     std::cout << "[bpe_train] total: " << total_time.count() << " ms"
               << std::endl;
+
+    // Create tokenizer with trained vocabulary
+    Tokenizer tokenizer;
+    tokenizer.ranks = std::move(ranks);
+    tokenizer.pattern = pattern;
+
+    // Add special tokens at the end (after all BPE tokens)
+    // Special token IDs start at 256 + vocab_size
+    TokenId special_id = total_bpe_vocab;
+
+    std::cout << "[bpe_train] Adding special tokens starting at ID "
+              << special_id << "..." << std::endl;
+
+    // Add user-specified special tokens
+    if (!special_tokens_input.bos_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.bos_token] =
+            SpecialToken(special_tokens_input.bos_token, special_id, true);
+        tokenizer.bos_token_id = special_id;
+        std::cout << "  BOS: " << special_tokens_input.bos_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    if (!special_tokens_input.eos_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.eos_token] =
+            SpecialToken(special_tokens_input.eos_token, special_id, true);
+        tokenizer.eos_token_id = special_id;
+        std::cout << "  EOS: " << special_tokens_input.eos_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    if (!special_tokens_input.pad_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.pad_token] =
+            SpecialToken(special_tokens_input.pad_token, special_id, true);
+        tokenizer.pad_token_id = special_id;
+        std::cout << "  PAD: " << special_tokens_input.pad_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    // Always add UNK token (not user-specified)
+    const std::string unk_token = "<|unk|>";
+    tokenizer.special_tokens[unk_token] =
+        SpecialToken(unk_token, special_id, true);
+    tokenizer.unk_token_id = special_id;
+    std::cout << "  UNK: " << unk_token << " (ID " << special_id
+              << ") [auto-added]" << std::endl;
+
+    return tokenizer;
 }
 
 // Helper struct for merge priority queue
@@ -610,10 +666,9 @@ struct EncodeSymbol {
 };
 
 // BPE encoding with priority queue (optimized like Rust implementation)
-std::vector<TokenId>
-byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
-                 const absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
-                     &merge_map) {
+std::vector<TokenId> byte_pair_encode(
+    const std::string &piece, const tokenizer::Ranks &ranks,
+    const absl::flat_hash_map<uint64_t, std::pair<int, TokenId>> &merge_map) {
     if (piece.empty()) {
         return {};
     }
@@ -636,9 +691,8 @@ byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
     for (size_t i = 0; i < piece.length(); ++i) {
         unsigned char c = static_cast<unsigned char>(piece[i]);
         ssize_t prev_idx = (i == 0) ? -1 : static_cast<ssize_t>(i - 1);
-        ssize_t next_idx = (i == piece.length() - 1)
-                               ? -1
-                               : static_cast<ssize_t>(i + 1);
+        ssize_t next_idx =
+            (i == piece.length() - 1) ? -1 : static_cast<ssize_t>(i + 1);
         symbols.emplace_back(static_cast<TokenId>(c), prev_idx, next_idx);
     }
 
@@ -682,8 +736,7 @@ byte_pair_encode(const std::string &piece, const tokenizer::Ranks &ranks,
 
         // Update next symbol's prev if it exists
         if (symbols[next_pos].next >= 0) {
-            size_t next_next_pos =
-                static_cast<size_t>(symbols[next_pos].next);
+            size_t next_next_pos = static_cast<size_t>(symbols[next_pos].next);
             if (next_next_pos < symbols.size()) {
                 symbols[next_next_pos].prev = static_cast<ssize_t>(top.pos);
             }
@@ -744,7 +797,8 @@ build_decoder_map(const tokenizer::Ranks &ranks) {
 }
 
 // Build merge map: maps (token1, token2) -> (rank, merged_token_id)
-// Reconstructs merges from vocabulary by finding the correct split for each token
+// Reconstructs merges from vocabulary by finding the correct split for each
+// token
 absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
 build_merge_map(const tokenizer::Ranks &ranks) {
     absl::flat_hash_map<uint64_t, std::pair<int, TokenId>> merge_map;
@@ -800,17 +854,18 @@ build_merge_map(const tokenizer::Ranks &ranks) {
     return merge_map;
 }
 
-// encode function with direct lookup
-std::vector<TokenId> tokenizer::encode(const std::string &text,
-                                       const Ranks &ranks,
-                                       const std::string &pattern) {
-    std::vector<TokenId> result;
+// Internal helper: encode a piece without special tokens
+static std::vector<tokenizer::TokenId>
+encode_piece(const std::string &text, const tokenizer::Ranks &ranks,
+             const std::string &pattern) {
+    std::vector<tokenizer::TokenId> result;
     result.reserve(text.length() / 2);
 
     // Build and cache merge map (thread-local, built once per tokenizer)
-    static thread_local absl::flat_hash_map<uint64_t, std::pair<int, TokenId>>
+    static thread_local absl::flat_hash_map<uint64_t,
+                                            std::pair<int, tokenizer::TokenId>>
         cached_merge_map;
-    static thread_local const Ranks *cached_ranks = nullptr;
+    static thread_local const tokenizer::Ranks *cached_ranks = nullptr;
 
     if (cached_ranks != &ranks) {
         cached_merge_map = build_merge_map(ranks);
@@ -829,10 +884,10 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
             // Try direct lookup first
             auto it = ranks.find(piece);
             if (it != ranks.end()) {
-                result.push_back(static_cast<TokenId>(it->second));
+                result.push_back(static_cast<tokenizer::TokenId>(it->second));
             } else {
                 // Fall back to BPE encoding
-                std::vector<TokenId> encoded =
+                std::vector<tokenizer::TokenId> encoded =
                     byte_pair_encode(piece, ranks, cached_merge_map);
                 result.insert(result.end(), encoded.begin(), encoded.end());
             }
@@ -842,9 +897,9 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
         std::string piece = text;
         auto it = ranks.find(piece);
         if (it != ranks.end()) {
-            result.push_back(static_cast<TokenId>(it->second));
+            result.push_back(static_cast<tokenizer::TokenId>(it->second));
         } else {
-            std::vector<TokenId> encoded =
+            std::vector<tokenizer::TokenId> encoded =
                 byte_pair_encode(piece, ranks, cached_merge_map);
             result.insert(result.end(), encoded.begin(), encoded.end());
         }
@@ -853,15 +908,85 @@ std::vector<TokenId> tokenizer::encode(const std::string &text,
     return result;
 }
 
+// Encode with special token support
+std::vector<TokenId> tokenizer::encode(const std::string &text,
+                                       const Tokenizer &tokenizer) {
+    // First, check if entire text is a special token
+    auto special_it = tokenizer.special_tokens.find(text);
+    if (special_it != tokenizer.special_tokens.end()) {
+        return {special_it->second.id};
+    }
+
+    // Build a simple split on special tokens
+    // For now, we do a simple approach: check for special tokens and split
+    std::vector<TokenId> result;
+    size_t pos = 0;
+
+    while (pos < text.length()) {
+        // Check if we're at a special token
+        bool found_special = false;
+        for (const auto &[token_str, st] : tokenizer.special_tokens) {
+            if (pos + token_str.length() <= text.length() &&
+                text.substr(pos, token_str.length()) == token_str) {
+                // Found a special token
+                result.push_back(st.id);
+                pos += token_str.length();
+                found_special = true;
+                break;
+            }
+        }
+
+        if (!found_special) {
+            // Find the next special token position
+            size_t next_special_pos = text.length();
+            for (const auto &[token_str, _] : tokenizer.special_tokens) {
+                size_t found_pos = text.find(token_str, pos);
+                if (found_pos != std::string::npos) {
+                    next_special_pos = std::min(next_special_pos, found_pos);
+                }
+            }
+
+            // Encode the text up to the next special token
+            std::string piece = text.substr(pos, next_special_pos - pos);
+            if (!piece.empty()) {
+                std::vector<TokenId> encoded =
+                    encode_piece(piece, tokenizer.ranks, tokenizer.pattern);
+                result.insert(result.end(), encoded.begin(), encoded.end());
+            }
+            pos = next_special_pos;
+        }
+    }
+
+    return result;
+}
+
+// Decode with special token support
 std::string tokenizer::decode(const std::vector<TokenId> &tokens,
-                              const Ranks &ranks) {
+                              const Tokenizer &tokenizer,
+                              bool skip_special_tokens) {
     // Build decoder map once
-    auto decoder = build_decoder_map(ranks);
+    auto decoder = build_decoder_map(tokenizer.ranks);
+
+    // Build reverse lookup for special tokens (ID -> token)
+    std::unordered_map<TokenId, std::string> special_decoder;
+    for (const auto &[token_str, st] : tokenizer.special_tokens) {
+        special_decoder[st.id] = token_str;
+    }
 
     std::string result;
     result.reserve(tokens.size() * 2);
 
     for (TokenId token : tokens) {
+        // Check if it's a special token
+        auto special_it = special_decoder.find(token);
+        if (special_it != special_decoder.end()) {
+            if (!skip_special_tokens) {
+                result += special_it->second;
+            }
+            continue;
+        }
+
+        // Regular token decode
         auto it = decoder.find(token);
         if (it != decoder.end()) {
             result += it->second;
@@ -877,18 +1002,31 @@ std::string tokenizer::decode(const std::vector<TokenId> &tokens,
 }
 
 std::string tokenizer::visualize(const std::vector<TokenId> &tokens,
-                                 const Ranks &ranks) {
-    auto decoder = build_decoder_map(ranks);
+                                 const Tokenizer &tokenizer) {
+    auto decoder = build_decoder_map(tokenizer.ranks);
+
+    // Build reverse lookup for special tokens (ID -> token)
+    std::unordered_map<TokenId, std::string> special_decoder;
+    for (const auto &[token_str, st] : tokenizer.special_tokens) {
+        special_decoder[st.id] = token_str;
+    }
     std::string result;
     for (TokenId token : tokens) {
-        auto it = decoder.find(token);
         std::string tok_str;
-        if (it != decoder.end()) {
-            tok_str = it->second;
-        } else if (token < 256) {
-            tok_str = std::string(1, static_cast<char>(token));
+
+        // Check if it's a special token first
+        auto special_it = special_decoder.find(token);
+        if (special_it != special_decoder.end()) {
+            tok_str = special_it->second;
         } else {
-            continue;
+            auto it = decoder.find(token);
+            if (it != decoder.end()) {
+                tok_str = it->second;
+            } else if (token < 256) {
+                tok_str = std::string(1, static_cast<char>(token));
+            } else {
+                continue;
+            }
         }
         // Generate color
         unsigned int hash_val = static_cast<unsigned int>(token);
@@ -930,6 +1068,19 @@ void tokenizer::save(const Tokenizer &tokenizer, const std::string &filename) {
     cereal::BinaryOutputArchive archive(os);
     archive(tokenizer.ranks);
     archive(tokenizer.pattern);
+
+    // Save special tokens
+    size_t num_special = tokenizer.special_tokens.size();
+    archive(num_special);
+    for (const auto &[token, st] : tokenizer.special_tokens) {
+        archive(st.content, st.id, st.special);
+    }
+
+    // Save special token IDs
+    archive(tokenizer.unk_token_id);
+    archive(tokenizer.bos_token_id);
+    archive(tokenizer.eos_token_id);
+    archive(tokenizer.pad_token_id);
 }
 
 tokenizer::Tokenizer tokenizer::load(const std::string &filename) {
@@ -943,6 +1094,23 @@ tokenizer::Tokenizer tokenizer::load(const std::string &filename) {
     cereal::BinaryInputArchive archive(is);
     archive(tok.ranks);
     archive(tok.pattern);
+
+    // Load special tokens
+    size_t num_special = 0;
+    archive(num_special);
+    for (size_t i = 0; i < num_special; ++i) {
+        std::string content;
+        TokenId id;
+        bool special;
+        archive(content, id, special);
+        tok.special_tokens[content] = SpecialToken(content, id, special);
+    }
+
+    // Load special token IDs
+    archive(tok.unk_token_id);
+    archive(tok.bos_token_id);
+    archive(tok.eos_token_id);
+    archive(tok.pad_token_id);
 
     return tok;
 }

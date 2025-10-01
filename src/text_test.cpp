@@ -1,5 +1,5 @@
 #include "text.hpp"
-#include <assert.h>
+#include <cassert>
 
 int main() {
     // Test strip_accents

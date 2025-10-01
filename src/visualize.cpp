@@ -10,10 +10,10 @@ int main() {
     std::vector<std::string> val_paths = io::load_txt("val_paths.txt");
     for (const auto &path : val_paths) {
         std::string content = io::read_file(path);
-        auto tokens = tokenizer::encode(content, tok.ranks, tok.pattern);
+        auto tokens = tokenizer::encode(content, tok);
 
         std::cout << "File: " << path << std::endl << std::endl;
-        std::cout << tokenizer::visualize(tokens, tok.ranks) << std::endl;
+        std::cout << tokenizer::visualize(tokens, tok) << std::endl;
         std::cout << "Used a total of " << tokens.size() << " tokens"
                   << std::endl
                   << std::endl;
