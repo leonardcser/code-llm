@@ -3,21 +3,19 @@ stages:
     cmd: uv sync && ./tokenizer/build/tokenize
     deps:
       - tokenizer/CMakeLists.txt
-      - tokenizer/src/decode.cpp
       - tokenizer/src/lib/dataloader.cpp
       - tokenizer/src/lib/dataloader.hpp
       - tokenizer/src/lib/io.cpp
       - tokenizer/src/lib/io.hpp
       - tokenizer/src/lib/text.cpp
       - tokenizer/src/lib/text.hpp
-      - tokenizer/src/lib/text_test.cpp
       - tokenizer/src/lib/threading.cpp
       - tokenizer/src/lib/threading.hpp
       - tokenizer/src/lib/tokenizer.cpp
       - tokenizer/src/lib/tokenizer.hpp
-      - tokenizer/src/lib/tokenizer_test.cpp
       - tokenizer/src/tokenize.cpp
-      - tokenizer/src/visualize.cpp
+    params:
+      - data
     outs:
       - out/tokenize
 

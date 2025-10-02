@@ -1,7 +1,19 @@
 data:
   train_file: "out/tokenize/train.bin"
   val_file: "out/tokenize/val.bin"
-  vocab_size: 20259 # 256 byte tokens + 30000 BPE merges + 3 special tokens (EOS, PAD, UNK)
+  tok_file: "out/tokenize/tok.bin"
+  train_paths_file: "out/tokenize/train_paths.txt"
+  val_paths_file: "out/tokenize/val_paths.txt"
+  dataset_path: "data/py150/data"
+  glob_pattern: "*.py"
+  split_ratio: 0.7
+  seed: 42
+  max_unique_words: 0
+  vocab_size: 20259 # 256 byte tokens + 20000 BPE merges + 3 special tokens (EOS, PAD, UNK)
+  pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
+  bos_token: ""
+  eos_token: "<|endoftext|>"
+  pad_token: "<|pad|>"
   seq_length: 256
   num_workers: 2
   eos_token_id: 20256 # <|endoftext|> token for document boundaries
@@ -22,7 +34,7 @@ model:
 
 training:
   batch_size: 32
-  epochs: 1000
+  epochs: 50
   lr: 0.0001
   weight_decay: 0.0001
   grad_clip: 1.0
@@ -31,8 +43,8 @@ training:
   use_amp: false # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   seed: 42
-  warmup_steps: 100 # Number of warmup steps for learning rate
-  scheduler_t_max: 100 # T_max for CosineAnnealingLR (epochs)
+  warmup_steps: 5 # Number of warmup steps for learning rate
+  scheduler_t_max: 50 # T_max for CosineAnnealingLR (epochs)
 
 other:
   save_dir: "out/train/checkpoints"

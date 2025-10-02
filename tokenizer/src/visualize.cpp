@@ -3,11 +3,15 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <yaml-cpp/yaml.h>
 
 int main() {
-    auto tok = tokenizer::load("out/tok.bin");
+    YAML::Node config = YAML::LoadFile("params.yaml");
 
-    std::vector<std::string> val_paths = io::load_txt("val_paths.txt");
+    auto tok = tokenizer::load(config["data"]["tok_file"].as<std::string>());
+
+    std::vector<std::string> val_paths =
+        io::load_txt(config["data"]["val_paths_file"].as<std::string>());
     for (const auto &path : val_paths) {
         std::string content = io::read_file(path);
         auto tokens = tokenizer::encode(content, tok);

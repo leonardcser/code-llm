@@ -7,34 +7,43 @@
 #include <iostream>
 #include <sstream>
 #include <utility>
+#include <yaml-cpp/yaml.h>
 
 int main() {
-    const unsigned int SEED = 42;
-    const double SPLIT = 0.7;
-    const std::string DATASET_PATH = "data/py150/data";
-    const std::string TRAIN_TXT = "out/tokenize/train_paths.txt";
-    const std::string VAL_TXT = "out/tokenize/val_paths.txt";
-    const std::string TOK_BIN = "out/tokenize/tok.bin";
-    const std::string TRAIN_BIN = "out/tokenize/train.bin";
-    const std::string VAL_BIN = "out/tokenize/val.bin";
-    const size_t VOCAB_SIZE = 20000;
-    const size_t MAX_UNIQUE_WORDS = 0;
+    YAML::Node config = YAML::LoadFile("params.yaml");
+
+    // Load configuration from params.yaml
+    const unsigned int seed = config["data"]["seed"].as<unsigned int>();
+    const double split_ratio = config["data"]["split_ratio"].as<double>();
+    const std::string dataset_path = config["data"]["dataset_path"].as<std::string>();
+    const std::string glob_pattern = config["data"]["glob_pattern"].as<std::string>();
+    const std::string train_paths_file = config["data"]["train_paths_file"].as<std::string>();
+    const std::string val_paths_file = config["data"]["val_paths_file"].as<std::string>();
+    const std::string tok_file = config["data"]["tok_file"].as<std::string>();
+    const std::string train_file = config["data"]["train_file"].as<std::string>();
+    const std::string val_file = config["data"]["val_file"].as<std::string>();
+    const size_t vocab_size = config["data"]["vocab_size"].as<size_t>();
+    const size_t max_unique_words = config["data"]["max_unique_words"].as<size_t>();
+    const std::string bos_token = config["data"]["bos_token"].as<std::string>();
+    const std::string eos_token = config["data"]["eos_token"].as<std::string>();
+    const std::string pad_token = config["data"]["pad_token"].as<std::string>();
+    const std::string pattern = config["data"]["pattern"].as<std::string>();
 
     // Define special tokens (UNK is automatically added)
     const tokenizer::SpecialTokensInput special_tokens(
-        "",              // BOS token (empty = unused)
-        "<|endoftext|>", // EOS token
-        "<|pad|>"        // PAD token
+        bos_token, // BOS token (empty = unused)
+        eos_token, // EOS token
+        pad_token  // PAD token
     );
 
     std::filesystem::create_directories("out/tokenize");
 
-    auto paths = dataloader::load_file_paths(DATASET_PATH, "*.py");
-    dataloader::set_seed(SEED);
+    auto paths = dataloader::load_file_paths(dataset_path, glob_pattern);
+    dataloader::set_seed(seed);
     dataloader::shuffle(paths);
-    auto [t, v] = dataloader::split(paths, SPLIT);
-    io::save_txt(t, TRAIN_TXT);
-    io::save_txt(v, VAL_TXT);
+    auto [t, v] = dataloader::split(paths, split_ratio);
+    io::save_txt(t, train_paths_file);
+    io::save_txt(v, val_paths_file);
     std::vector<std::string> train_paths = std::move(t);
     std::vector<std::string> val_paths = std::move(v);
 
@@ -78,42 +87,37 @@ int main() {
     };
 
     std::string txt = io::concatenate_files(train_paths, trim_and_ascii);
-    const std::string pattern =
-        R"( ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s)";
-    // std::string pattern =
-    //     R"([sdmt]|ll|ve|re|[^\r\na-zA-Z0-9]?[a-zA-Z]+|[0-9]{1,3}|
-    //     ?[^\sa-zA-Z0-9]+[\r\n]*|\s+$|\s*[\r\n]|\s+(?!\S)|\s)";
 
     std::cout << "Training tokenizer..." << std::endl;
 
-    auto tok = tokenizer::bpe_train(txt, VOCAB_SIZE, pattern, special_tokens,
-                                    MAX_UNIQUE_WORDS, 5000);
+    auto tok = tokenizer::bpe_train(txt, vocab_size, pattern, special_tokens,
+                                    max_unique_words, 5000);
 
-    tokenizer::save(tok, TOK_BIN);
+    tokenizer::save(tok, tok_file);
 
     // Encode train data
     std::cout << "\nEncoding training data..." << std::endl;
     std::string train_txt_concat =
-        io::concatenate_files(train_paths, trim_and_ascii, "<|endoftext|>");
+        io::concatenate_files(train_paths, trim_and_ascii, eos_token);
     auto train_tokens = tokenizer::encode(train_txt_concat, tok);
     std::cout << "Train tokens: " << train_tokens.size() << std::endl;
 
     // Encode val data
     std::cout << "Encoding validation data..." << std::endl;
     std::string val_txt_concat =
-        io::concatenate_files(val_paths, trim_and_ascii, "<|endoftext|>");
+        io::concatenate_files(val_paths, trim_and_ascii, eos_token);
     auto val_tokens = tokenizer::encode(val_txt_concat, tok);
     std::cout << "Val tokens: " << val_tokens.size() << std::endl;
 
     // Save train tokens
     std::cout << "\nSaving train tokens..." << std::endl;
-    io::save_tokens(train_tokens, TRAIN_BIN);
-    std::cout << "Saved to out/train.bin" << std::endl;
+    io::save_tokens(train_tokens, train_file);
+    std::cout << "Saved to " << train_file << std::endl;
 
     // Save val tokens
     std::cout << "Saving val tokens..." << std::endl;
-    io::save_tokens(val_tokens, VAL_BIN);
-    std::cout << "Saved to out/val.bin" << std::endl;
+    io::save_tokens(val_tokens, val_file);
+    std::cout << "Saved to " << val_file << std::endl;
 
     std::cout << "\nTraining complete!" << std::endl;
     return 0;

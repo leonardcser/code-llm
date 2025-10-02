@@ -2,23 +2,31 @@
 #include "lib/tokenizer.hpp"
 #include <algorithm>
 #include <iostream>
+#include <yaml-cpp/yaml.h>
 
 int main(int argc, char *argv[]) {
+    YAML::Node config = YAML::LoadFile("params.yaml");
+
+    // Load tokenizer
     // Parse command line arguments
     size_t max_tokens = 100; // default
     if (argc > 1) {
         max_tokens = std::stoul(argv[1]);
     }
 
+    const std::string tok_file = config["data"]["tok_file"].as<std::string>();
+    const std::string val_file = config["data"]["val_file"].as<std::string>();
+
     // Load tokenizer
-    std::cout << "Loading tokenizer from out/tok.bin..." << std::endl;
-    auto tok = tokenizer::load("out/tok.bin");
+    std::cout << "Loading tokenizer from " << tok_file << "..." << std::endl;
+    auto tok = tokenizer::load(tok_file);
     std::cout << "Tokenizer loaded (vocab size: " << tok.ranks.size() << ")"
               << std::endl;
 
     // Load validation tokens
-    std::cout << "Loading validation tokens from out/val.bin..." << std::endl;
-    auto val_tokens = io::load_tokens("out/val.bin");
+    std::cout << "Loading validation tokens from " << val_file << "..."
+              << std::endl;
+    auto val_tokens = io::load_tokens(val_file);
     std::cout << "Loaded " << val_tokens.size() << " tokens" << std::endl;
 
     // Determine how many tokens to decode

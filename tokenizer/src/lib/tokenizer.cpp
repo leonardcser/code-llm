@@ -189,15 +189,22 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
                      const std::string &pattern,
                      const SpecialTokensInput &special_tokens_input,
                      size_t max_unique_words, size_t logging_interval) {
-    // vocab_size now means number of BPE merges (excludes 256 byte tokens)
-    if (vocab_size == 0) {
-        throw std::invalid_argument("vocab_size must be at least 1");
+    // vocab_size is the total vocabulary size (256 bytes + BPE merges + special tokens)
+    if (vocab_size < 256) {
+        throw std::invalid_argument("vocab_size must be at least 256");
     }
 
     const auto total_start = Clock::now();
 
-    // Total vocab will be: 256 bytes + vocab_size BPE merges
-    const size_t total_bpe_vocab = 256 + vocab_size;
+    // Calculate number of special tokens
+    size_t num_special_tokens = 1; // UNK is always added
+    if (!special_tokens_input.bos_token.empty()) num_special_tokens++;
+    if (!special_tokens_input.eos_token.empty()) num_special_tokens++;
+    if (!special_tokens_input.pad_token.empty()) num_special_tokens++;
+
+    // Calculate number of BPE merges: total - 256 bytes - special tokens
+    const size_t num_bpe_merges = vocab_size - 256 - num_special_tokens;
+    const size_t total_bpe_vocab = 256 + num_bpe_merges;
 
     Ranks ranks;
     ranks.reserve(total_bpe_vocab);
@@ -569,8 +576,9 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
     const DurationMs total_time =
         std::chrono::duration_cast<DurationMs>(Clock::now() - total_start);
 
-    std::cout << "[bpe_train] BPE training completed. Final vocabulary size: "
-              << ranks.size() << std::endl;
+    std::cout << "[bpe_train] BPE training completed. BPE vocab size: "
+              << ranks.size() << " (256 bytes + " << num_bpe_merges
+              << " merges)" << std::endl;
     std::cout << "[bpe_train] tokenize_to_words: " << tokenize_time.count()
               << " ms" << std::endl;
     if (sampling_time.count() > 0) {
@@ -593,11 +601,11 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
     tokenizer.pattern = pattern;
 
     // Add special tokens at the end (after all BPE tokens)
-    // Special token IDs start at 256 + vocab_size
     TokenId special_id = total_bpe_vocab;
 
-    std::cout << "[bpe_train] Adding special tokens starting at ID "
-              << special_id << "..." << std::endl;
+    std::cout << "[bpe_train] Adding " << num_special_tokens
+              << " special tokens starting at ID " << special_id << "..."
+              << std::endl;
 
     // Add user-specified special tokens
     if (!special_tokens_input.bos_token.empty()) {
@@ -634,6 +642,10 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
     tokenizer.unk_token_id = special_id;
     std::cout << "  UNK: " << unk_token << " (ID " << special_id
               << ") [auto-added]" << std::endl;
+
+    std::cout << "[bpe_train] Total vocabulary size: " << (special_id + 1)
+              << " (256 bytes + " << num_bpe_merges << " merges + "
+              << num_special_tokens << " special tokens)" << std::endl;
 
     return tokenizer;
 }

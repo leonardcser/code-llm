@@ -11,15 +11,10 @@
 
 namespace io {
 
-std::string read_file(const std::string &relative_path) {
-    std::filesystem::path source_dir = std::filesystem::path(__FILE__)
-                                           .parent_path()
-                                           .parent_path(); // go up from src/
-    std::filesystem::path full_path = source_dir / relative_path;
-
-    std::ifstream file(full_path, std::ios::in | std::ios::binary);
+std::string read_file(const std::string &path) {
+    std::ifstream file(path, std::ios::in | std::ios::binary);
     if (!file) {
-        throw std::runtime_error("Failed to open file: " + full_path.string());
+        throw std::runtime_error("Failed to open file: " + path);
     }
 
     std::ostringstream contents;
@@ -61,7 +56,8 @@ concatenate_files(const std::vector<std::string> &paths,
                   const std::string &separator) {
     std::string result;
     size_t total_size = 0;
-    size_t separator_overhead = !separator.empty() ? separator.size() * paths.size() : 0;
+    size_t separator_overhead =
+        !separator.empty() ? separator.size() * paths.size() : 0;
 
     // First pass: calculate total size
     for (const auto &path : paths) {
