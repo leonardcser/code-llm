@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dylib
+dist/
+*.whl
+.cache/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Python packaging
+.eggs/
+*.egg

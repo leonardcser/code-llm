@@ -11,8 +11,6 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <nlohmann/json.hpp>
-#include <queue>
 #include <reflex/matcher.h>
 #include <reflex/pattern.h>
 #include <thread>

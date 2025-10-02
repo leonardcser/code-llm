@@ -1,18 +1,8 @@
 """Predict next token using trained transformer model."""
 
-import sys
 import time
 import torch
-from pathlib import Path
 from transformers import StaticCache
-
-# Add tokenizer build directory to Python path
-tokenizer_build_path = Path(__file__).parent.parent / "tokenizer" / "build"
-sys.path.insert(0, str(tokenizer_build_path))
-
-# Also add tokenizer directory for the Python wrapper
-tokenizer_path = Path(__file__).parent.parent / "tokenizer"
-sys.path.insert(0, str(tokenizer_path))
 
 from tokenizer import Tokenizer
 from models.model import create_qwen3_model

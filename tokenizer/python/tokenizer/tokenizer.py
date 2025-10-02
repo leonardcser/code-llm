@@ -3,10 +3,7 @@
 from pathlib import Path
 from typing import List, Union
 
-try:
-    from . import tokenizer_cpp
-except ImportError:
-    import tokenizer_cpp
+from . import tokenizer_cpp
 
 
 class Tokenizer:

@@ -1,6 +1,6 @@
 stages:
   tokenize:
-    cmd: cmake -B tokenizer/build -S tokenizer -DCMAKE_BUILD_TYPE=Release && cmake --build tokenizer/build -j10 && ./tokenizer/build/tokenize
+    cmd: uv sync && ./tokenizer/build/tokenize
     deps:
       - tokenizer/CMakeLists.txt
       - tokenizer/src/decode.cpp

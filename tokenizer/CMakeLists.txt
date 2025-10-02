@@ -15,14 +15,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mcpu=native -funroll-loops -flto
 
 enable_testing()
 
-# nlohmann/json (v3.12.0)
+# Include FetchContent module
 include(FetchContent)
-FetchContent_Declare(
-  json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.12.0
-)
-FetchContent_MakeAvailable(json)
 
 # cereal (v1.3.2) for binary serialization
 FetchContent_Declare(
@@ -71,7 +65,7 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
-    target_link_libraries(llm_lib PUBLIC nlohmann_json::nlohmann_json absl::flat_hash_map cereal::cereal ReflexLib)
+    target_link_libraries(llm_lib PUBLIC absl::flat_hash_map cereal::cereal ReflexLibStatic)
     target_compile_options(llm_lib PRIVATE -Wno-deprecated-declarations)
 endif()
 
@@ -81,7 +75,7 @@ foreach(ENTRYPOINT ${ENTRYPOINTS})
     if(LIB_SOURCES)
         target_link_libraries(${ENTRYPOINT} PRIVATE llm_lib)
     endif()
-    target_link_libraries(${ENTRYPOINT} PRIVATE nlohmann_json::nlohmann_json ReflexLib)
+    target_link_libraries(${ENTRYPOINT} PRIVATE ReflexLibStatic)
 endforeach()
 
 # Test executables
@@ -94,7 +88,7 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
     if(LIB_SOURCES)
         target_link_libraries(${TEST_NAME} PRIVATE llm_lib)
     endif()
-    target_link_libraries(${TEST_NAME} PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(${TEST_NAME} PRIVATE)
     target_compile_options(${TEST_NAME} PRIVATE -DDEBUG_TESTS -Wno-unused-variable)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
@@ -110,4 +104,8 @@ pybind11_add_module(tokenizer_cpp src/python_bindings.cpp)
 if(LIB_SOURCES)
     target_link_libraries(tokenizer_cpp PRIVATE llm_lib)
 endif()
-target_link_libraries(tokenizer_cpp PRIVATE nlohmann_json::nlohmann_json ReflexLib)
+# Link against static reflex library to avoid runtime dependency issues
+target_link_libraries(tokenizer_cpp PRIVATE ReflexLibStatic)
+
+# Install the extension module to the package directory
+install(TARGETS tokenizer_cpp LIBRARY DESTINATION tokenizer)
