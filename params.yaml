@@ -4,7 +4,7 @@ data:
   vocab_size: 30259
   seq_length: 256
   num_workers: 2
-  eos_token_id: 30256  # <|endoftext|> token for document boundaries
+  eos_token_id: 30256 # <|endoftext|> token for document boundaries
 
 model:
   # Qwen3 architecture parameters
@@ -24,14 +24,16 @@ model:
 training:
   batch_size: 32
   epochs: 1000
-  lr: 0.0003
-  weight_decay: 0.001
+  lr: 0.0001
+  weight_decay: 0.0001
   grad_clip: 1.0
   gradient_accumulation_steps: 4
-  max_batches_per_epoch: 200 # Set to integer to limit batches per epoch, null for no limit
-  use_amp: true # Use automatic mixed precision training
+  max_batches_per_epoch: 2500 # Set to integer to limit batches per epoch, null for no limit
+  use_amp: false # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   seed: 42
+  warmup_steps: 100 # Number of warmup steps for learning rate
+  scheduler_t_max: 100 # T_max for CosineAnnealingLR (epochs)
 
 other:
   save_dir: "out/train/checkpoints"

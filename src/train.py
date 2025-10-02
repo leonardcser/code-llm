@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
 from pathlib import Path
 from tqdm import tqdm
 import yaml
@@ -243,14 +243,39 @@ def main():
         weight_decay=training_params["weight_decay"],
     )
 
-    # Setup mixed precision training
-    use_amp = training_params.get("use_amp", False)
-    scaler = GradScaler(device.type, enabled=use_amp) if use_amp else None
+    # Setup mixed precision training (only supported on CUDA)
+    use_amp = training_params.get("use_amp", False) and device.type == "cuda"
+    scaler = GradScaler("cuda", enabled=use_amp) if use_amp else None
     if use_amp:
         print("\nUsing automatic mixed precision training (AMP)")
+    elif training_params.get("use_amp", False) and device.type != "cuda":
+        print(f"\nWarning: AMP is not supported on {device.type}, disabling AMP")
 
-    # Learning rate scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=training_params["epochs"])
+    # Learning rate scheduler with warmup
+    warmup_steps = training_params.get("warmup_steps", 0)
+    t_max = training_params.get("scheduler_t_max", training_params["epochs"])
+
+    if warmup_steps > 0:
+        # Warmup scheduler: linearly increase LR from 0 to target LR
+        warmup_scheduler = LambdaLR(
+            optimizer,
+            lr_lambda=lambda epoch: min(1.0, (epoch + 1) / warmup_steps)
+        )
+        # Cosine annealing after warmup
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=t_max - warmup_steps
+        )
+        # Combine warmup + cosine
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_steps]
+        )
+        print(f"\nUsing warmup ({warmup_steps} steps) + CosineAnnealing (T_max={t_max - warmup_steps})")
+    else:
+        scheduler = CosineAnnealingLR(optimizer, T_max=t_max)
+        print(f"\nUsing CosineAnnealing (T_max={t_max})")
 
     save_dir = Path(other_params["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)
