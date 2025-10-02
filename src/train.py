@@ -115,7 +115,9 @@ def train_epoch(
 
 
 @torch.no_grad()
-def validate(model, val_loader, device, max_batches=None, use_amp=False, use_attention_mask=False):
+def validate(
+    model, val_loader, device, max_batches=None, use_amp=False, use_attention_mask=False
+):
     """Validate the model."""
     model.eval()
     total_loss = 0
@@ -219,7 +221,6 @@ def main():
         max_position_embeddings=model_params["max_position_embeddings"],
         rope_theta=model_params.get("rope_theta", 10000.0),
         attention_dropout=model_params.get("attention_dropout", 0.1),
-        hidden_dropout=model_params.get("hidden_dropout", 0.1),
         rms_norm_eps=model_params.get("rms_norm_eps", 1e-6),
         use_sliding_window=model_params.get("use_sliding_window", False),
         sliding_window=model_params.get("sliding_window", 4096),
@@ -258,21 +259,19 @@ def main():
     if warmup_steps > 0:
         # Warmup scheduler: linearly increase LR from 0 to target LR
         warmup_scheduler = LambdaLR(
-            optimizer,
-            lr_lambda=lambda epoch: min(1.0, (epoch + 1) / warmup_steps)
+            optimizer, lr_lambda=lambda epoch: min(1.0, (epoch + 1) / warmup_steps)
         )
         # Cosine annealing after warmup
-        cosine_scheduler = CosineAnnealingLR(
-            optimizer,
-            T_max=t_max - warmup_steps
-        )
+        cosine_scheduler = CosineAnnealingLR(optimizer, T_max=t_max - warmup_steps)
         # Combine warmup + cosine
         scheduler = SequentialLR(
             optimizer,
             schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_steps]
+            milestones=[warmup_steps],
         )
-        print(f"\nUsing warmup ({warmup_steps} steps) + CosineAnnealing (T_max={t_max - warmup_steps})")
+        print(
+            f"\nUsing warmup ({warmup_steps} steps) + CosineAnnealing (T_max={t_max - warmup_steps})"
+        )
     else:
         scheduler = CosineAnnealingLR(optimizer, T_max=t_max)
         print(f"\nUsing CosineAnnealing (T_max={t_max})")

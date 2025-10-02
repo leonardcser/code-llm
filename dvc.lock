@@ -1,13 +1,12 @@
 schema: '2.0'
 stages:
   tokenize:
-    cmd: cmake -B tokenizer/build -S tokenizer -DCMAKE_BUILD_TYPE=Release && 
-      cmake --build tokenizer/build -j10 && ./tokenizer/build/tokenize
+    cmd: uv sync && ./tokenizer/build/tokenize
     deps:
     - path: tokenizer/CMakeLists.txt
       hash: md5
-      md5: 257ef5f6377a8b87b0c3d0a3169466e6
-      size: 3491
+      md5: f2b84d6bf75e7b45a9be314f191764b9
+      size: 3451
     - path: tokenizer/src/decode.cpp
       hash: md5
       md5: 3d3a3f8c7729457e9615b1e448491565
@@ -50,8 +49,8 @@ stages:
       size: 1134
     - path: tokenizer/src/lib/tokenizer.cpp
       hash: md5
-      md5: 0a9c34c64dc14a1b7a4cc669221dba90
-      size: 41406
+      md5: eff7859738c93cef0ea6664f2d1b3f00
+      size: 41360
     - path: tokenizer/src/lib/tokenizer.hpp
       hash: md5
       md5: b66a3b6b1dd621a607e8837489f30465
@@ -62,7 +61,7 @@ stages:
       size: 8437
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 4bdfdb7eb3aa2564f4f56f396c389286
+      md5: 2de9f523d9836edf6dc0b6dd6842d9ad
       size: 4653
     - path: tokenizer/src/visualize.cpp
       hash: md5

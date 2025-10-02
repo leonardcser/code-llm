@@ -11,7 +11,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "tensorboard>=2.20.0",
     "torch>=2.8.0",
-    "transformers>=4.40.0",
+    "transformers>=4.51.0",
     "tqdm>=4.67.1",
     "tokenizer @ file:///${PROJECT_ROOT}/tokenizer",
 ]

@@ -50,7 +50,6 @@ def load_model(checkpoint_path: str, device: torch.device):
         max_position_embeddings=model_params["max_position_embeddings"],
         rope_theta=model_params.get("rope_theta", 10000.0),
         attention_dropout=model_params.get("attention_dropout", 0.1),
-        hidden_dropout=model_params.get("hidden_dropout", 0.1),
         rms_norm_eps=model_params.get("rms_norm_eps", 1e-6),
         use_sliding_window=model_params.get("use_sliding_window", False),
         sliding_window=model_params.get("sliding_window", 4096),
@@ -154,7 +153,7 @@ def generate_text(
     for much faster inference compared to manual token-by-token generation.
 
     Args:
-        model: Trained transformer model (Qwen2ForCausalLM)
+        model: Trained transformer model (Qwen3ForCausalLM)
         tokenizer: Tokenizer for encoding/decoding
         prompt: Initial prompt text
         device: Device to run inference on
@@ -249,7 +248,7 @@ def main():
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = predict_next_token(
-        model, tokenizer, test_text, device, temperature=0.6
+        model, tokenizer, test_text, device, temperature=0.3
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -270,7 +269,7 @@ def main():
     print("\n[Generating with StaticCache...]")
     start_time = time.time()
     generated = generate_text(
-        model, tokenizer, prompt, device, max_tokens=100, temperature=0.6, top_k=50
+        model, tokenizer, prompt, device, max_tokens=100, temperature=0.3, top_k=50
     )
     generation_time = time.time() - start_time
 

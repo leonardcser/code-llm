@@ -1,22 +1,21 @@
 data:
   train_file: "out/tokenize/train.bin"
   val_file: "out/tokenize/val.bin"
-  vocab_size: 30259
+  vocab_size: 20259 # 256 byte tokens + 30000 BPE merges + 3 special tokens (EOS, PAD, UNK)
   seq_length: 256
   num_workers: 2
-  eos_token_id: 30256 # <|endoftext|> token for document boundaries
+  eos_token_id: 20256 # <|endoftext|> token for document boundaries
 
 model:
   # Qwen3 architecture parameters
   hidden_size: 256
-  num_hidden_layers: 6
+  num_hidden_layers: 4
   num_attention_heads: 8
-  num_key_value_heads: 8 # Set equal to num_attention_heads for standard attention
+  num_key_value_heads: 8
   intermediate_size: 2048
   max_position_embeddings: 2048
   rope_theta: 10000.0
   attention_dropout: 0.1
-  hidden_dropout: 0.1
   rms_norm_eps: 0.000001
   use_sliding_window: false
   sliding_window: 4096
@@ -28,7 +27,7 @@ training:
   weight_decay: 0.0001
   grad_clip: 1.0
   gradient_accumulation_steps: 4
-  max_batches_per_epoch: 2500 # Set to integer to limit batches per epoch, null for no limit
+  max_batches_per_epoch: 500 # Set to integer to limit batches per epoch, null for no limit
   use_amp: false # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   seed: 42

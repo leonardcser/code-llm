@@ -70,19 +70,37 @@ class TokenDataset(Dataset):
 
     def _create_attention_mask(self, tokens):
         """
-        Create attention mask for the sequence.
+        Create attention mask for the sequence with document boundaries.
 
-        Returns a 1D binary mask (shape: seq_len) where 1 indicates tokens to attend to.
-        For Qwen3, this should be shape (batch_size, sequence_length) after batching.
+        For packed sequences with multiple documents separated by EOS tokens,
+        this creates a 3D attention mask that prevents cross-document attention.
 
-        Note: Causal masking is handled internally by the model. Document boundaries
-        are handled via position_ids reset.
+        Returns a 3D mask (1, seq_len, seq_len) where:
+        - True indicates tokens that can be attended to
+        - False indicates tokens that should be masked out
+        - Causal masking (lower triangular) is combined with document boundaries
+        - After batching, becomes (batch_size, 1, seq_len, seq_len)
         """
         seq_len = len(tokens)
 
-        # Return a 1D mask of all ones (all tokens are valid, no padding)
-        # Shape: (seq_len,)
-        mask = torch.ones(seq_len, dtype=torch.long)
+        # Create causal mask (lower triangular)
+        # Shape: (seq_len, seq_len)
+        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
+
+        # Find EOS token positions
+        eos_positions = (tokens == self.eos_token_id).nonzero(as_tuple=False).squeeze(-1)
+
+        if len(eos_positions) > 0:
+            # For each EOS token, block attention from later tokens to this and earlier tokens
+            for eos_pos in eos_positions:
+                eos_pos = eos_pos.item()
+                # All positions after EOS cannot attend to positions up to and including EOS
+                if eos_pos + 1 < seq_len:
+                    mask[eos_pos + 1:, :eos_pos + 1] = False
+
+        # Reshape to 3D: (1, seq_len, seq_len)
+        # When batched, this becomes (batch_size, 1, seq_len, seq_len)
+        mask = mask.unsqueeze(0)
 
         return mask
 

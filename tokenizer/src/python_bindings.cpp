@@ -36,7 +36,17 @@ PYBIND11_MODULE(tokenizer_cpp, m) {
         .def_readwrite("eos_token_id", &tokenizer::Tokenizer::eos_token_id)
         .def_readwrite("pad_token_id", &tokenizer::Tokenizer::pad_token_id)
         .def("vocab_size", [](const tokenizer::Tokenizer &tok) {
-            return tok.ranks.size();
+            // Calculate actual vocab size including special tokens
+            tokenizer::TokenId max_id = static_cast<tokenizer::TokenId>(tok.ranks.size());
+
+            // Check special token IDs
+            for (const auto &[token_str, st] : tok.special_tokens) {
+                if (st.id >= max_id) {
+                    max_id = st.id + 1;
+                }
+            }
+
+            return static_cast<size_t>(max_id);
         });
 
     // Bind training function

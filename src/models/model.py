@@ -1,6 +1,6 @@
 """Qwen3 model creation using transformers library."""
 
-from transformers import Qwen2Config, Qwen2ForCausalLM
+from transformers import Qwen3Config, Qwen3ForCausalLM
 
 
 def create_qwen3_model(
@@ -13,7 +13,6 @@ def create_qwen3_model(
     max_position_embeddings: int = 2048,
     rope_theta: float = 10000.0,
     attention_dropout: float = 0.1,
-    hidden_dropout: float = 0.1,
     rms_norm_eps: float = 1e-6,
     use_sliding_window: bool = False,
     sliding_window: int = 4096,
@@ -30,7 +29,6 @@ def create_qwen3_model(
         max_position_embeddings: Maximum sequence length
         rope_theta: RoPE theta parameter
         attention_dropout: Attention dropout rate
-        hidden_dropout: Hidden layer dropout rate
         rms_norm_eps: RMSNorm epsilon
         use_sliding_window: Whether to use sliding window attention
         sliding_window: Sliding window size
@@ -39,7 +37,7 @@ def create_qwen3_model(
         Qwen3 model initialized from scratch
     """
     # Create Qwen3 configuration
-    config = Qwen2Config(
+    config = Qwen3Config(
         vocab_size=vocab_size,
         hidden_size=hidden_size,
         num_hidden_layers=num_hidden_layers,
@@ -49,7 +47,6 @@ def create_qwen3_model(
         max_position_embeddings=max_position_embeddings,
         rope_theta=rope_theta,
         attention_dropout=attention_dropout,
-        hidden_dropout_prob=hidden_dropout,
         rms_norm_eps=rms_norm_eps,
         use_sliding_window=use_sliding_window,
         sliding_window=sliding_window,
@@ -57,7 +54,7 @@ def create_qwen3_model(
     )
 
     # Initialize model from config (random weights)
-    model = Qwen2ForCausalLM(config)
+    model = Qwen3ForCausalLM(config)
 
     # Ensure token embeddings match vocab size
     model.resize_token_embeddings(vocab_size)

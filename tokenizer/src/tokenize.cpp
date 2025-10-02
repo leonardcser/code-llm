@@ -17,7 +17,7 @@ int main() {
     const std::string TOK_BIN = "out/tokenize/tok.bin";
     const std::string TRAIN_BIN = "out/tokenize/train.bin";
     const std::string VAL_BIN = "out/tokenize/val.bin";
-    const size_t VOCAB_SIZE = 30000;
+    const size_t VOCAB_SIZE = 20000;
     const size_t MAX_UNIQUE_WORDS = 0;
 
     // Define special tokens (UNK is automatically added)
