@@ -248,7 +248,7 @@ def main():
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = predict_next_token(
-        model, tokenizer, test_text, device, temperature=0.3
+        model, tokenizer, test_text, device, temperature=0.6
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")

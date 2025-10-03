@@ -5,12 +5,8 @@ stages:
     deps:
     - path: tokenizer/CMakeLists.txt
       hash: md5
-      md5: f2b84d6bf75e7b45a9be314f191764b9
-      size: 3451
-    - path: tokenizer/src/decode.cpp
-      hash: md5
-      md5: 3d3a3f8c7729457e9615b1e448491565
-      size: 1473
+      md5: f423c9f26c603962959c3724015d286e
+      size: 4922
     - path: tokenizer/src/lib/dataloader.cpp
       hash: md5
       md5: 53ebf2ee5ada158ea331af08bcf08c69
@@ -21,8 +17,8 @@ stages:
       size: 600
     - path: tokenizer/src/lib/io.cpp
       hash: md5
-      md5: b12aceac054d2d2aa7639087c60f57d4
-      size: 6298
+      md5: 29106b39a48a20faa8d1973ede05ff93
+      size: 6004
     - path: tokenizer/src/lib/io.hpp
       hash: md5
       md5: a8177ebb8c302e566c180770cdc09639
@@ -35,10 +31,6 @@ stages:
       hash: md5
       md5: d3d105e19ac1861ea43655dcf6cbfd6e
       size: 134
-    - path: tokenizer/src/lib/text_test.cpp
-      hash: md5
-      md5: a0f80277b32880bfc87b61b44b417b82
-      size: 952
     - path: tokenizer/src/lib/threading.cpp
       hash: md5
       md5: 5497a70216e75242a6b969862c92fc3b
@@ -49,27 +41,125 @@ stages:
       size: 1134
     - path: tokenizer/src/lib/tokenizer.cpp
       hash: md5
-      md5: eff7859738c93cef0ea6664f2d1b3f00
-      size: 41360
+      md5: 54cd9e6213efb6b49b65bd6b4fada1ce
+      size: 42046
     - path: tokenizer/src/lib/tokenizer.hpp
       hash: md5
       md5: b66a3b6b1dd621a607e8837489f30465
       size: 2950
-    - path: tokenizer/src/lib/tokenizer_test.cpp
-      hash: md5
-      md5: 949be426ad564794bbedf39f3ae50122
-      size: 8437
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 2de9f523d9836edf6dc0b6dd6842d9ad
-      size: 4653
-    - path: tokenizer/src/visualize.cpp
-      hash: md5
-      md5: 428235b7f21d2415efbd2a6036bd6929
-      size: 886
+      md5: 33295b6d287a03f9ab2f10846a86cf61
+      size: 5185
+    params:
+      params.yaml:
+        data:
+          train_file: out/tokenize/train.bin
+          val_file: out/tokenize/val.bin
+          tok_file: out/tokenize/tok.bin
+          train_paths_file: out/tokenize/train_paths.txt
+          val_paths_file: out/tokenize/val_paths.txt
+          dataset_path: data/py150/data
+          glob_pattern: '*.py'
+          split_ratio: 0.7
+          seed: 42
+          max_unique_words: 0
+          vocab_size: 20259
+          pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
+            ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
+          bos_token: ''
+          eos_token: <|endoftext|>
+          pad_token: <|pad|>
+          seq_length: 256
+          num_workers: 2
+          eos_token_id: 20256
     outs:
     - path: out/tokenize
       hash: md5
-      md5: dcee99e2073dbf4d9bf3699a6dd8a613.dir
-      size: 840119036
+      md5: c431b167c25ce6941660151a743c7d1b.dir
+      size: 871552397
       nfiles: 5
+  train:
+    cmd: uv run python src/train.py
+    deps:
+    - path: out/tokenize
+      hash: md5
+      md5: c431b167c25ce6941660151a743c7d1b.dir
+      size: 871552397
+      nfiles: 5
+    - path: src/dataloaders/data_loader.py
+      hash: md5
+      md5: d7693de2ac8cce09afab336a82be811a
+      size: 6673
+    - path: src/models/model.py
+      hash: md5
+      md5: d3477080ef61c3593374cb454c14a4fc
+      size: 2338
+    - path: src/train.py
+      hash: md5
+      md5: cfbc0ebea268b7967cba7b036689e5dd
+      size: 11940
+    params:
+      params.yaml:
+        data:
+          train_file: out/tokenize/train.bin
+          val_file: out/tokenize/val.bin
+          tok_file: out/tokenize/tok.bin
+          train_paths_file: out/tokenize/train_paths.txt
+          val_paths_file: out/tokenize/val_paths.txt
+          dataset_path: data/py150/data
+          glob_pattern: '*.py'
+          split_ratio: 0.7
+          seed: 42
+          max_unique_words: 0
+          vocab_size: 20259
+          pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
+            ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
+          bos_token: ''
+          eos_token: <|endoftext|>
+          pad_token: <|pad|>
+          seq_length: 256
+          num_workers: 2
+          eos_token_id: 20256
+        model:
+          hidden_size: 256
+          num_hidden_layers: 4
+          num_attention_heads: 8
+          num_key_value_heads: 8
+          intermediate_size: 2048
+          max_position_embeddings: 2048
+          rope_theta: 10000.0
+          attention_dropout: 0.1
+          rms_norm_eps: 1e-06
+          use_sliding_window: false
+          sliding_window: 4096
+        other:
+          save_dir: out/train/checkpoints
+          log_dir: out/train/logs
+        training:
+          batch_size: 32
+          epochs: 50
+          lr: 0.0001
+          weight_decay: 0.0001
+          grad_clip: 1.0
+          gradient_accumulation_steps: 4
+          max_batches_per_epoch: 500
+          use_amp: false
+          compile_mode: max-autotune
+          seed: 42
+          warmup_steps: 5
+          scheduler_t_max: 50
+    outs:
+    - path: out/train/checkpoints/best.pt
+      hash: md5
+      md5: d3899ca5f2060f13809306c417871d11
+      size: 250390977
+    - path: out/train/checkpoints/latest.pt
+      hash: md5
+      md5: 61eb00240b02de4ce4cb8775de41757a
+      size: 250395205
+    - path: out/train/logs
+      hash: md5
+      md5: f4a90a71fb4cfc15d5f343f7a2c7029e.dir
+      size: 23049
+      nfiles: 9
