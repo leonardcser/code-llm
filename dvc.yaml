@@ -24,8 +24,9 @@ stages:
     deps:
       - out/tokenize
       - src/train.py
-      - src/models/model.py
-      - src/dataloaders/data_loader.py
+      - src/models/qwen3.py
+      - src/dataloaders/py150.py
+      - src/dataloaders/py150_dataloader.py
     params:
       - data
       - model

@@ -1,165 +1,87 @@
 import torch
-import torch.nn as nn
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
-from pathlib import Path
-from tqdm import tqdm
 import yaml
 import time
-import random
-import numpy as np
 import json
-from torch.utils.tensorboard import SummaryWriter
-from torch.amp import autocast, GradScaler
+from pathlib import Path
+import lightning as L
+from lightning.fabric.loggers.tensorboard import TensorBoardLogger
+from tqdm import tqdm
 
-from models.model import create_qwen3_model, count_parameters
-from dataloaders.data_loader import get_dataloaders
+from models.qwen3 import Qwen3
+from dataloaders.py150 import Py150DataModule
 
 
 def train_epoch(
+    fabric,
     model,
-    train_loader,
     optimizer,
-    device,
-    grad_clip=1.0,
-    gradient_accumulation_steps=1,
+    train_loader,
+    grad_clip,
+    grad_accum_steps,
     max_batches=None,
-    scaler=None,
-    use_amp=False,
-    use_attention_mask=False,
 ):
     """Train for one epoch."""
     model.train()
-    total_loss = 0
+    train_losses = []
 
-    pbar = tqdm(
-        train_loader,
-        desc="Training",
-        total=max_batches if max_batches else len(train_loader),
-    )
-    step = -1
-    for step, batch in enumerate(pbar):
-        if max_batches is not None and step >= max_batches:
+    total = min(len(train_loader), max_batches) if max_batches is not None else None
+    pbar = tqdm(train_loader, desc="Training", total=total)
+    for batch_idx, batch in enumerate(pbar):
+        if max_batches is not None and batch_idx >= max_batches:
             break
 
-        # Handle both 2-tuple and 4-tuple returns from dataloader
-        if use_attention_mask:
-            x, y, attention_mask, position_ids = batch
-            x = x.to(device)
-            y = y.to(device)
-            attention_mask = attention_mask.to(device)
-            position_ids = position_ids.to(device)
-        else:
-            x, y = batch
-            x, y = x.to(device), y.to(device)
-            attention_mask = None
-            position_ids = None
+        # Determine if we're accumulating gradients
+        is_accumulating = (batch_idx + 1) % grad_accum_steps != 0
 
-        # Forward pass with mixed precision (returns ModelOutput with .logits)
-        with autocast(device_type=device.type, enabled=use_amp):
-            outputs = model(x, attention_mask=attention_mask, position_ids=position_ids)
-            logits = outputs.logits
+        # Use no_backward_sync to skip gradient synchronization during accumulation
+        with fabric.no_backward_sync(model, enabled=is_accumulating):
+            # Call LightningModule's training_step
+            loss = model.training_step(batch, batch_idx)
+            # Fabric backward (handles precision automatically)
+            fabric.backward(loss)
 
-            # Calculate loss
-            loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)), y.view(-1)
-            )
-
-            # Scale loss for gradient accumulation
-            loss = loss / gradient_accumulation_steps
-
-        # Backward pass
-        if use_amp and scaler is not None:
-            scaler.scale(loss).backward()
-        else:
-            loss.backward()
-
-        # Only update weights every gradient_accumulation_steps
-        if (step + 1) % gradient_accumulation_steps == 0:
-            if use_amp and scaler is not None:
-                # Unscale gradients before clipping
-                scaler.unscale_(optimizer)
-
+        # Step optimizer only when accumulation phase is complete
+        if not is_accumulating:
             # Gradient clipping
             if grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                fabric.clip_gradients(model, optimizer, max_norm=grad_clip)
 
-            if use_amp and scaler is not None:
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                optimizer.step()
-
-            optimizer.zero_grad(set_to_none=True)
-
-        total_loss += loss.item() * gradient_accumulation_steps
-        pbar.set_postfix({"loss": loss.item() * gradient_accumulation_steps})
-
-    # Apply any remaining accumulated gradients
-    if (step + 1) % gradient_accumulation_steps != 0:
-        if use_amp and scaler is not None:
-            scaler.unscale_(optimizer)
-
-        if grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-
-        if use_amp and scaler is not None:
-            scaler.step(optimizer)
-            scaler.update()
-        else:
             optimizer.step()
+            optimizer.zero_grad()
 
-        optimizer.zero_grad(set_to_none=True)
+        train_losses.append(loss.item())
+        pbar.set_postfix({"loss": loss.item()})
 
-    num_batches = max_batches if max_batches is not None else len(train_loader)
-    return total_loss / num_batches
+    # Handle remaining gradients
+    if len(train_losses) > 0 and (len(train_losses) % grad_accum_steps != 0):
+        if grad_clip > 0:
+            fabric.clip_gradients(model, optimizer, max_norm=grad_clip)
+        optimizer.step()
+        optimizer.zero_grad()
+
+    return sum(train_losses) / len(train_losses) if train_losses else 0.0
 
 
 @torch.no_grad()
-def validate(
-    model, val_loader, device, max_batches=None, use_amp=False, use_attention_mask=False
-):
+def validate(fabric, model, val_loader, max_batches=None):
     """Validate the model."""
     model.eval()
-    total_loss = 0
+    val_losses = []
 
-    pbar = tqdm(
-        val_loader,
-        desc="Validation",
-        total=max_batches if max_batches else len(val_loader),
-    )
-    for step, batch in enumerate(pbar):
-        if max_batches is not None and step >= max_batches:
+    total = min(len(val_loader), max_batches) if max_batches is not None else None
+    pbar = tqdm(val_loader, desc="Validation", total=total)
+    for batch_idx, batch in enumerate(pbar):
+        if max_batches is not None and batch_idx >= max_batches:
             break
 
-        # Handle both 2-tuple and 4-tuple returns from dataloader
-        if use_attention_mask:
-            x, y, attention_mask, position_ids = batch
-            x = x.to(device)
-            y = y.to(device)
-            attention_mask = attention_mask.to(device)
-            position_ids = position_ids.to(device)
-        else:
-            x, y = batch
-            x, y = x.to(device), y.to(device)
-            attention_mask = None
-            position_ids = None
-
-        # Forward pass with mixed precision (returns ModelOutput with .logits)
-        with autocast(device_type=device.type, enabled=use_amp):
-            outputs = model(x, attention_mask=attention_mask, position_ids=position_ids)
-            logits = outputs.logits
-
-            # Calculate loss
-            loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)), y.view(-1)
-            )
-
-        total_loss += loss.item()
+        # Call LightningModule's validation_step
+        loss = model.validation_step(batch, batch_idx)
+        val_losses.append(loss.item())
         pbar.set_postfix({"loss": loss.item()})
 
-    num_batches = max_batches if max_batches is not None else len(val_loader)
-    return total_loss / num_batches
+    out = sum(val_losses) / len(val_losses) if val_losses else 0.0
+    model.train()
+    return out
 
 
 def main():
@@ -172,47 +94,69 @@ def main():
     other_params = params["other"]
 
     # Set random seeds for reproducibility
-    seed = training_params.get("seed", 42)
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    seed = training_params["seed"]
+    L.seed_everything(seed, workers=True)
 
-    # Device (use MPS on Apple Silicon, CUDA if available, else CPU)
+    # Set matmul precision for better MPS performance
+    torch.set_float32_matmul_precision("high")
+
+    # Setup directories
+    save_dir = Path(other_params["save_dir"])
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    prefix = training_params["prefix"]
+    run_name = f"{prefix}_{int(time.time())}"
+
+    # Determine accelerator and precision
     if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using MPS (Apple Silicon GPU)")
+        accelerator = "mps"
+        precision = "bf16-mixed" if training_params.get("use_amp", False) else "32-true"
     elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        print("Using CUDA")
+        accelerator = "cuda"
+        precision = "16-mixed" if training_params.get("use_amp", False) else "32-true"
     else:
-        device = torch.device("cpu")
-        print("Using CPU")
+        accelerator = "cpu"
+        precision = "32-true"
 
-    # Create data loaders with attention masking if EOS token is specified
-    print("\nLoading data...")
+    # Initialize Fabric
+    logger = TensorBoardLogger(
+        root_dir=str(Path(other_params["log_dir"])),
+        name=run_name,
+    )
+
+    fabric = L.Fabric(
+        accelerator=accelerator,
+        devices=1,
+        precision=precision,
+        loggers=logger,
+    )
+    fabric.launch()
+
+    fabric.print(f"Using {accelerator.upper()} with precision: {precision}")
+
+    # Create data module
+    fabric.print("\nLoading data...")
     eos_token_id = data_params.get("eos_token_id")
     use_attention_mask = eos_token_id is not None
 
     if use_attention_mask:
-        print(f"Using attention masking with EOS token ID: {eos_token_id}")
+        fabric.print(f"Using attention masking with EOS token ID: {eos_token_id}")
 
-    train_loader, val_loader = get_dataloaders(
-        data_params["train_file"],
-        data_params["val_file"],
+    data_module = Py150DataModule(
+        train_file=data_params["train_file"],
+        val_file=data_params["val_file"],
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],
         num_workers=data_params["num_workers"],
+        pin_memory=False,  # Don't use pin_memory on MPS
         seed=seed,
         eos_token_id=eos_token_id,
     )
+    data_module.setup("fit")
 
     # Create model
-    print("\nCreating model...")
-    model = create_qwen3_model(
+    fabric.print("\nCreating model...")
+    model = Qwen3(
         vocab_size=data_params["vocab_size"],
         hidden_size=model_params["hidden_size"],
         num_hidden_layers=model_params["num_hidden_layers"],
@@ -225,135 +169,112 @@ def main():
         rms_norm_eps=model_params.get("rms_norm_eps", 1e-6),
         use_sliding_window=model_params.get("use_sliding_window", False),
         sliding_window=model_params.get("sliding_window", 4096),
-    ).to(device)
-
-    # Compile model if requested
-    compile_mode = training_params.get("compile_mode")
-    if compile_mode:
-        print(f"\nCompiling model with mode: {compile_mode}")
-        model = torch.compile(model, mode=compile_mode)
-
-    total_params, trainable_params = count_parameters(model)
-    print(f"\nTotal parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
-    print(f"Trainable %: {100 * trainable_params / total_params:.2f}%")
-
-    # Create optimizer (only optimize trainable parameters)
-    optimizer = AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
         lr=training_params["lr"],
         weight_decay=training_params["weight_decay"],
+        warmup_steps=training_params.get("warmup_steps", 0),
+        scheduler_t_max=training_params.get(
+            "scheduler_t_max", training_params["epochs"]
+        ),
+        use_attention_mask=use_attention_mask,
     )
 
-    # Setup mixed precision training (only supported on CUDA)
-    use_amp = training_params.get("use_amp", False) and device.type == "cuda"
-    scaler = GradScaler("cuda", enabled=use_amp) if use_amp else None
-    if use_amp:
-        print("\nUsing automatic mixed precision training (AMP)")
-    elif training_params.get("use_amp", False) and device.type != "cuda":
-        print(f"\nWarning: AMP is not supported on {device.type}, disabling AMP")
+    # Compile model if requested (before fabric.setup)
+    compile_mode = training_params.get("compile_mode")
+    if compile_mode:
+        fabric.print(f"\nCompiling model with mode: {compile_mode}")
+        model.model = torch.compile(model.model, mode=compile_mode)  # type: ignore[assignment]
 
-    # Learning rate scheduler with warmup
-    warmup_steps = training_params.get("warmup_steps", 0)
-    t_max = training_params.get("scheduler_t_max", training_params["epochs"])
+    total_params, trainable_params = model.get_parameter_counts()
+    fabric.print(f"\nTotal parameters: {total_params:,}")
+    fabric.print(f"Trainable parameters: {trainable_params:,}")
+    fabric.print(f"Trainable %: {100 * trainable_params / total_params:.2f}%")
 
-    if warmup_steps > 0:
-        # Warmup scheduler: linearly increase LR from 0 to target LR
-        warmup_scheduler = LambdaLR(
-            optimizer, lr_lambda=lambda epoch: min(1.0, (epoch + 1) / warmup_steps)
-        )
-        # Cosine annealing after warmup
-        cosine_scheduler = CosineAnnealingLR(optimizer, T_max=t_max - warmup_steps)
-        # Combine warmup + cosine
-        scheduler = SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_steps],
-        )
-        print(
-            f"\nUsing warmup ({warmup_steps} steps) + CosineAnnealing (T_max={t_max - warmup_steps})"
-        )
-    else:
-        scheduler = CosineAnnealingLR(optimizer, T_max=t_max)
-        print(f"\nUsing CosineAnnealing (T_max={t_max})")
+    # Get optimizer and scheduler from LightningModule
+    optimizer_config = model.configure_optimizers()
+    optimizer = optimizer_config["optimizer"]
+    scheduler = optimizer_config["lr_scheduler"]["scheduler"]
 
-    save_dir = Path(other_params["save_dir"])
-    save_dir.mkdir(parents=True, exist_ok=True)
+    # Get dataloaders from DataModule
+    train_loader = data_module.train_dataloader()
+    val_loader = data_module.val_dataloader()
 
-    run_name = f"llm_{int(time.time())}"
-    log_dir = Path(other_params["log_dir"]) / run_name
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # Setup with Fabric
+    model, optimizer = fabric.setup(model, optimizer)
+    train_loader, val_loader = fabric.setup_dataloaders(train_loader, val_loader)
 
-    writer = SummaryWriter(str(log_dir))
+    # Training configuration
+    epochs = training_params["epochs"]
+    grad_clip = training_params["grad_clip"]
+    grad_accum_steps = training_params.get("gradient_accumulation_steps", 1)
+    max_batches_per_epoch = training_params.get("max_batches_per_epoch")
 
     # Training loop
-    print("\nStarting training...")
+    fabric.print("\nStarting training...")
     best_val_loss = float("inf")
     best_train_loss = float("inf")
     best_epoch = 0
-
     train_loss = 0
     val_loss = 0
 
-    for epoch in range(training_params["epochs"]):
-        print(f"\nEpoch {epoch + 1}/{training_params['epochs']}")
+    for epoch in range(epochs):
+        fabric.print(f"\nEpoch {epoch + 1}/{epochs}")
 
         # Train
         train_loss = train_epoch(
+            fabric,
             model,
-            train_loader,
             optimizer,
-            device,
-            training_params["grad_clip"],
-            training_params.get("gradient_accumulation_steps", 1),
-            training_params.get("max_batches_per_epoch"),
-            scaler=scaler,
-            use_amp=use_amp,
-            use_attention_mask=use_attention_mask,
+            train_loader,
+            grad_clip,
+            grad_accum_steps,
+            max_batches_per_epoch,
         )
-        print(f"Train loss: {train_loss:.4f}")
+        fabric.print(f"Train loss: {train_loss:.4f}")
 
         # Validate
         val_loss = validate(
+            fabric,
             model,
             val_loader,
-            device,
-            training_params.get("max_batches_per_epoch"),
-            use_amp=use_amp,
-            use_attention_mask=use_attention_mask,
+            max_batches_per_epoch,
         )
-        print(f"Val loss: {val_loss:.4f}")
+        fabric.print(f"Val loss: {val_loss:.4f}")
 
-        writer.add_scalars("Loss", {"train": train_loss, "val": val_loss}, epoch)
+        # Log metrics via Fabric
+        fabric.log_dict(
+            {
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "lr": scheduler.get_last_lr()[0],
+            },
+            step=epoch,
+        )
 
         # Update learning rate
         scheduler.step()
-        print(f"Learning rate: {scheduler.get_last_lr()[0]:.6f}")
-        writer.add_scalar("Learning Rate", scheduler.get_last_lr()[0], epoch)
+        fabric.print(f"Learning rate: {scheduler.get_last_lr()[0]:.6f}")
 
-        # Flush logs to disk
-        writer.flush()
-
-        # Save checkpoint
-        checkpoint = {
+        # Save checkpoint via Fabric
+        state = {
+            "model": model,
+            "optimizer": optimizer,
+            "scheduler": scheduler,
             "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
             "train_loss": train_loss,
             "val_loss": val_loss,
             "params": params,
         }
 
         # Save latest checkpoint
-        torch.save(checkpoint, save_dir / "latest.pt")
+        fabric.save(save_dir / "latest.ckpt", state)
 
-        # Save best checkpoint
+        # Save best checkpoint and metrics
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_train_loss = train_loss
             best_epoch = epoch
-            torch.save(checkpoint, save_dir / "best.pt")
-            print(f"Saved best model (val_loss: {val_loss:.4f})")
+            fabric.save(save_dir / "best.ckpt", state)
+            fabric.print(f"Saved best model (val_loss: {val_loss:.4f})")
 
             # Save DVC metrics for best model
             metrics_path = save_dir / "metrics.json"
@@ -377,15 +298,14 @@ def main():
         {
             "final_train_loss": float(train_loss),
             "final_val_loss": float(val_loss),
-            "total_epochs": training_params["epochs"],
+            "total_epochs": epochs,
         }
     )
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    print(f"\nSaved metrics to {metrics_path}")
+    fabric.print(f"\nSaved metrics to {metrics_path}")
 
-    print("\nTraining complete!")
-    writer.close()
+    fabric.print("\nTraining complete!")
 
 
 if __name__ == "__main__":

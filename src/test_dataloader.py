@@ -1,5 +1,7 @@
 from tokenizer import Tokenizer
-from dataloaders.data_loader import get_dataloaders
+from dataloaders.py150_dataloader import TokenDataset
+import torch
+from torch.utils.data import DataLoader
 import yaml
 
 
@@ -15,14 +17,36 @@ other_params = params["other"]
 seed = training_params.get("seed", 42)
 eos_token_id = data_params.get("eos_token_id")
 
-train_loader, val_loader = get_dataloaders(
+# Create datasets
+train_dataset = TokenDataset(
     data_params["train_file"],
+    seq_length=data_params["seq_length"],
+    eos_token_id=eos_token_id,
+)
+val_dataset = TokenDataset(
     data_params["val_file"],
     seq_length=data_params["seq_length"],
-    batch_size=training_params["batch_size"],
-    num_workers=0,
-    seed=seed,
     eos_token_id=eos_token_id,
+)
+
+# Create dataloaders
+generator = None
+if seed is not None:
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=training_params["batch_size"],
+    shuffle=True,
+    num_workers=0,
+    generator=generator,
+)
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=training_params["batch_size"],
+    shuffle=False,
+    num_workers=0,
 )
 
 # Initialize tokenizer for decoding

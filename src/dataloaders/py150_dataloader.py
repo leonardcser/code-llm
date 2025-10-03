@@ -1,18 +1,9 @@
+"""Dataset and utilities for Py150 tokenized data."""
+
 import numpy as np
-import random
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from typing import Optional
-
-
-def _seed_worker(worker_id):
-    """Worker initialization function for reproducible data loading."""
-    worker_seed_info = torch.utils.data.get_worker_info()
-    if worker_seed_info is not None:
-        seed = worker_seed_info.seed % (2**32)
-        np.random.seed(seed)
-        random.seed(seed)
-        torch.manual_seed(seed)
 
 
 class TokenDataset(Dataset):
@@ -125,64 +116,3 @@ class TokenDataset(Dataset):
                     position_ids[eos_pos + 1:] -= (eos_pos + 1)
 
         return position_ids
-
-
-def get_dataloaders(
-    train_file: str,
-    val_file: str,
-    seq_length: int = 512,
-    batch_size: int = 32,
-    num_workers: int = 0,
-    pin_memory: bool = False,
-    seed: Optional[int] = None,
-    eos_token_id: Optional[int] = None,
-):
-    """
-    Create train and validation dataloaders.
-
-    Args:
-        train_file: Path to training tokens binary file
-        val_file: Path to validation tokens binary file
-        seq_length: Length of each sequence
-        batch_size: Batch size
-        num_workers: Number of workers for data loading
-        pin_memory: Pin memory for faster data transfer (use only for CUDA)
-        seed: Random seed for reproducibility
-        eos_token_id: Token ID for end-of-sequence (enables attention masking)
-
-    Returns:
-        train_loader, val_loader
-    """
-    train_dataset = TokenDataset(train_file, seq_length, eos_token_id)
-    val_dataset = TokenDataset(val_file, seq_length, eos_token_id)
-
-    # Setup worker initialization and generator for reproducibility
-    if seed is not None:
-        worker_init_fn = _seed_worker if num_workers > 0 else None
-        # Create generator for reproducible shuffling
-        generator = torch.Generator()
-        generator.manual_seed(seed)
-    else:
-        worker_init_fn = None
-        generator = None
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        worker_init_fn=worker_init_fn,
-        generator=generator,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        worker_init_fn=worker_init_fn,
-    )
-
-    return train_loader, val_loader

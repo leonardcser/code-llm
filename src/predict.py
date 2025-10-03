@@ -2,10 +2,10 @@
 
 import time
 import torch
+import lightning as L
 from transformers import StaticCache
 
 from tokenizer import Tokenizer
-from models.model import create_qwen3_model
 
 # TODO: FUTURE ENHANCEMENT - HuggingFace Tokenizer Integration
 # ============================================================
@@ -27,40 +27,23 @@ from models.model import create_qwen3_model
 # custom inference. Only create wrapper if you need model.generate() later.
 
 
-def load_model(checkpoint_path: str, device: torch.device):
-    """Load model from checkpoint."""
+def load_model(checkpoint_path: str, fabric: L.Fabric):
+    """Load model from checkpoint using Fabric."""
     print(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # Load checkpoint using Fabric (handles device placement automatically)
+    checkpoint = fabric.load(checkpoint_path)
 
     # Extract params from checkpoint
     params = checkpoint["params"]
-    data_params = params["data"]
-    model_params = params["model"]
 
-    # Create Qwen3 model
-    model = create_qwen3_model(
-        vocab_size=data_params["vocab_size"],
-        hidden_size=model_params["hidden_size"],
-        num_hidden_layers=model_params["num_hidden_layers"],
-        num_attention_heads=model_params["num_attention_heads"],
-        num_key_value_heads=model_params.get(
-            "num_key_value_heads", model_params["num_attention_heads"]
-        ),
-        intermediate_size=model_params["intermediate_size"],
-        max_position_embeddings=model_params["max_position_embeddings"],
-        rope_theta=model_params.get("rope_theta", 10000.0),
-        attention_dropout=model_params.get("attention_dropout", 0.1),
-        rms_norm_eps=model_params.get("rms_norm_eps", 1e-6),
-        use_sliding_window=model_params.get("use_sliding_window", False),
-        sliding_window=model_params.get("sliding_window", 4096),
-    )
+    # Extract the LightningModule and get the underlying model
+    # checkpoint["model"] is the Qwen3 LightningModule wrapper
+    lightning_module = checkpoint["model"]
+    model = lightning_module.model  # Extract the actual Qwen3ForCausalLM
 
-    # Load weights
-    state_dict = checkpoint["model_state_dict"]
-    # Remove _orig_mod. prefix if present (from torch.compile)
-    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict)
-    model = model.to(device)
+    # Setup model with Fabric for inference
+    model = fabric.setup(model)
     model.eval()
 
     print(
@@ -74,7 +57,7 @@ def predict_next_token(
     model: torch.nn.Module,
     tokenizer: Tokenizer,
     text: str,
-    device: torch.device,
+    fabric: L.Fabric,
     temperature: float = 1.0,
     top_k: int | None = None,
 ) -> tuple[int, str, dict[str, float]]:
@@ -84,7 +67,7 @@ def predict_next_token(
         model: Trained transformer model
         tokenizer: Tokenizer for encoding/decoding
         text: Input text
-        device: Device to run inference on
+        fabric: Fabric instance for device
         temperature: Sampling temperature (higher = more random)
         top_k: If set, only sample from top k most likely tokens
 
@@ -97,7 +80,7 @@ def predict_next_token(
     tokens = tokenizer.encode(text)
 
     # Convert to tensor
-    x = torch.tensor([tokens], dtype=torch.long, device=device)
+    x = torch.tensor([tokens], dtype=torch.long, device=fabric.device)
 
     # Get model predictions (returns ModelOutput with .logits)
     outputs = model(x)
@@ -140,7 +123,7 @@ def generate_text(
     model: torch.nn.Module,
     tokenizer: Tokenizer,
     prompt: str,
-    device: torch.device,
+    fabric: L.Fabric,
     max_tokens: int = 50,
     temperature: float = 1.0,
     top_k: int | None = None,
@@ -156,7 +139,7 @@ def generate_text(
         model: Trained transformer model (Qwen3ForCausalLM)
         tokenizer: Tokenizer for encoding/decoding
         prompt: Initial prompt text
-        device: Device to run inference on
+        fabric: Fabric instance for device
         max_tokens: Maximum number of tokens to generate
         temperature: Sampling temperature
         top_k: If set, only sample from top k most likely tokens
@@ -168,7 +151,7 @@ def generate_text(
     """
     # Encode prompt with custom tokenizer
     input_ids = tokenizer.encode(prompt)
-    input_tensor = torch.tensor([input_ids], dtype=torch.long, device=device)
+    input_tensor = torch.tensor([input_ids], dtype=torch.long, device=fabric.device)
 
     # Initialize StaticCache for best performance with torch.compile
     cache = None
@@ -177,7 +160,7 @@ def generate_text(
             config=model.config,
             max_batch_size=1,
             max_cache_len=model.config.max_position_embeddings,
-            device=device,
+            device=fabric.device,
             dtype=model.dtype,
         )
 
@@ -208,19 +191,12 @@ def generate_text(
 
 def main():
     # Configuration
-    checkpoint_path = "out/train/checkpoints/best.pt"
+    checkpoint_path = "out/train/checkpoints/best.ckpt"
     tokenizer_path = "out/tokenize/tok.bin"
 
-    # Device
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using MPS (Apple Silicon GPU)")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        print("Using CUDA")
-    else:
-        device = torch.device("cpu")
-        print("Using CPU")
+    # Initialize Fabric for inference
+    fabric = L.Fabric(accelerator="auto", devices=1)
+    fabric.launch()
 
     # Load tokenizer
     print(f"\nLoading tokenizer from {tokenizer_path}...")
@@ -228,7 +204,7 @@ def main():
     print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size})")
 
     # Load model
-    model, _params = load_model(checkpoint_path, device)
+    model, _params = load_model(checkpoint_path, fabric)
 
     # Enable torch.compile for 2-4x additional speedup during generation
     # Note: First run will be slower due to compilation, subsequent runs are much faster
@@ -248,7 +224,7 @@ def main():
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = predict_next_token(
-        model, tokenizer, test_text, device, temperature=0.6
+        model, tokenizer, test_text, fabric, temperature=0.6
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -263,13 +239,13 @@ def main():
 
     prompt = "def calculate("
     print(f"\nPrompt: {prompt!r}")
-    print(f"Generating {100} tokens with temperature=0.6, top_k=50")
+    print("Generating 100 tokens with temperature=0.3, top_k=50")
 
     # Timed generation with KV cache
     print("\n[Generating with StaticCache...]")
     start_time = time.time()
     generated = generate_text(
-        model, tokenizer, prompt, device, max_tokens=100, temperature=0.3, top_k=50
+        model, tokenizer, prompt, fabric, max_tokens=100, temperature=0.3, top_k=50
     )
     generation_time = time.time() - start_time
 

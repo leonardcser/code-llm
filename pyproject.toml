@@ -14,4 +14,5 @@ dependencies = [
     "transformers>=4.51.0",
     "tqdm>=4.67.1",
     "tokenizer @ file:///${PROJECT_ROOT}/tokenizer",
+    "lightning>=2.5.5",
 ]
