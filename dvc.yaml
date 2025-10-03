@@ -36,3 +36,6 @@ stages:
       - out/train/checkpoints/latest.pt
       - out/train/logs:
           persist: true
+    metrics:
+      - out/train/checkpoints/metrics.json:
+          cache: false

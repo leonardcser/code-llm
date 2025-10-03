@@ -8,6 +8,7 @@ import yaml
 import time
 import random
 import numpy as np
+import json
 from torch.utils.tensorboard import SummaryWriter
 from torch.amp import autocast, GradScaler
 
@@ -288,6 +289,11 @@ def main():
     # Training loop
     print("\nStarting training...")
     best_val_loss = float("inf")
+    best_train_loss = float("inf")
+    best_epoch = 0
+
+    train_loss = 0
+    val_loss = 0
 
     for epoch in range(training_params["epochs"]):
         print(f"\nEpoch {epoch + 1}/{training_params['epochs']}")
@@ -344,8 +350,39 @@ def main():
         # Save best checkpoint
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_train_loss = train_loss
+            best_epoch = epoch
             torch.save(checkpoint, save_dir / "best.pt")
             print(f"Saved best model (val_loss: {val_loss:.4f})")
+
+            # Save DVC metrics for best model
+            metrics_path = save_dir / "metrics.json"
+            metrics = {
+                "best_train_loss": float(best_train_loss),
+                "best_val_loss": float(best_val_loss),
+                "best_epoch": int(best_epoch),
+            }
+            with open(metrics_path, "w") as f:
+                json.dump(metrics, f, indent=2)
+
+    # Update final metrics after training completes
+    metrics_path = save_dir / "metrics.json"
+    if metrics_path.exists():
+        with open(metrics_path, "r") as f:
+            metrics = json.load(f)
+    else:
+        metrics = {}
+
+    metrics.update(
+        {
+            "final_train_loss": float(train_loss),
+            "final_val_loss": float(val_loss),
+            "total_epochs": training_params["epochs"],
+        }
+    )
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"\nSaved metrics to {metrics_path}")
 
     print("\nTraining complete!")
     writer.close()
