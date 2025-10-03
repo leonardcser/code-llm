@@ -20,11 +20,11 @@ data:
 
 model:
   # Qwen3 architecture parameters
-  hidden_size: 256
+  hidden_size: 512
   num_hidden_layers: 4
-  num_attention_heads: 8
+  num_attention_heads: 16
   num_key_value_heads: 8
-  intermediate_size: 2048
+  intermediate_size: 1024
   max_position_embeddings: 2048
   rope_theta: 10000.0
   attention_dropout: 0.1
@@ -36,10 +36,10 @@ training:
   batch_size: 32
   epochs: 50
   lr: 0.0001
-  weight_decay: 0.0001
+  weight_decay: 0.01
   grad_clip: 1.0
   gradient_accumulation_steps: 4
-  max_batches_per_epoch: 500 # Set to integer to limit batches per epoch, null for no limit
+  max_batches_per_epoch: 750 # Set to integer to limit batches per epoch, null for no limit
   use_amp: false # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   seed: 42

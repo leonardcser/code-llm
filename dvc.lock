@@ -122,11 +122,11 @@ stages:
           num_workers: 2
           eos_token_id: 20256
         model:
-          hidden_size: 256
+          hidden_size: 512
           num_hidden_layers: 4
-          num_attention_heads: 8
+          num_attention_heads: 16
           num_key_value_heads: 8
-          intermediate_size: 2048
+          intermediate_size: 1024
           max_position_embeddings: 2048
           rope_theta: 10000.0
           attention_dropout: 0.1
@@ -140,10 +140,10 @@ stages:
           batch_size: 32
           epochs: 50
           lr: 0.0001
-          weight_decay: 0.0001
+          weight_decay: 0.01
           grad_clip: 1.0
           gradient_accumulation_steps: 4
-          max_batches_per_epoch: 500
+          max_batches_per_epoch: 750
           use_amp: false
           compile_mode: max-autotune
           seed: 42
@@ -152,14 +152,14 @@ stages:
     outs:
     - path: out/train/checkpoints/best.pt
       hash: md5
-      md5: d3899ca5f2060f13809306c417871d11
-      size: 250390977
+      md5: 7ff86820215545b91d40ce2fbea7365e
+      size: 475553217
     - path: out/train/checkpoints/latest.pt
       hash: md5
-      md5: 61eb00240b02de4ce4cb8775de41757a
-      size: 250395205
+      md5: 8a2b8516057e5ad5cfc2de597624f284
+      size: 475557445
     - path: out/train/logs
       hash: md5
-      md5: f4a90a71fb4cfc15d5f343f7a2c7029e.dir
-      size: 23049
+      md5: 3671bc46e0857dcb0ccc75a6756dcfd2.dir
+      size: 24804
       nfiles: 9
