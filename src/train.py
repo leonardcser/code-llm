@@ -110,10 +110,10 @@ def main():
     # Determine accelerator and precision
     if torch.backends.mps.is_available():
         accelerator = "mps"
-        precision = "bf16-mixed" if training_params.get("use_amp", False) else "32-true"
+        precision = "bf16-mixed" if training_params["use_amp"] else "32-true"
     elif torch.cuda.is_available():
         accelerator = "cuda"
-        precision = "16-mixed" if training_params.get("use_amp", False) else "32-true"
+        precision = "16-mixed" if training_params["use_amp"] else "32-true"
     else:
         accelerator = "cpu"
         precision = "32-true"
@@ -164,17 +164,15 @@ def main():
         num_key_value_heads=model_params["num_key_value_heads"],
         intermediate_size=model_params["intermediate_size"],
         max_position_embeddings=model_params["max_position_embeddings"],
-        rope_theta=model_params.get("rope_theta", 10000.0),
-        attention_dropout=model_params.get("attention_dropout", 0.1),
-        rms_norm_eps=model_params.get("rms_norm_eps", 1e-6),
-        use_sliding_window=model_params.get("use_sliding_window", False),
-        sliding_window=model_params.get("sliding_window", 4096),
+        rope_theta=model_params["rope_theta"],
+        attention_dropout=model_params["attention_dropout"],
+        rms_norm_eps=model_params["rms_norm_eps"],
+        use_sliding_window=model_params["use_sliding_window"],
+        sliding_window=model_params["sliding_window"],
         lr=training_params["lr"],
         weight_decay=training_params["weight_decay"],
-        warmup_steps=training_params.get("warmup_steps", 0),
-        scheduler_t_max=training_params.get(
-            "scheduler_t_max", training_params["epochs"]
-        ),
+        warmup_steps=training_params["warmup_steps"],
+        scheduler_t_max=training_params["scheduler_t_max"],
         use_attention_mask=use_attention_mask,
     )
 

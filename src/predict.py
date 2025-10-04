@@ -5,6 +5,7 @@ import torch
 import lightning as L
 from transformers import StaticCache
 
+from models.qwen3 import Qwen3
 from tokenizer import Tokenizer
 
 # TODO: FUTURE ENHANCEMENT - HuggingFace Tokenizer Integration
@@ -36,11 +37,42 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
 
     # Extract params from checkpoint
     params = checkpoint["params"]
+    model_params = params["model"]
+    data_params = params["data"]
+    training_params = params["training"]
 
-    # Extract the LightningModule and get the underlying model
-    # checkpoint["model"] is the Qwen3 LightningModule wrapper
-    lightning_module = checkpoint["model"]
-    model = lightning_module.model  # Extract the actual Qwen3ForCausalLM
+    # Reconstruct the Lightning module from params
+    # (fabric.load converts model to state_dict, so we need to recreate it)
+    lightning_module = Qwen3(
+        vocab_size=data_params["vocab_size"],
+        hidden_size=model_params["hidden_size"],
+        num_hidden_layers=model_params["num_hidden_layers"],
+        num_attention_heads=model_params["num_attention_heads"],
+        num_key_value_heads=model_params["num_key_value_heads"],
+        intermediate_size=model_params["intermediate_size"],
+        max_position_embeddings=model_params["max_position_embeddings"],
+        rope_theta=model_params["rope_theta"],
+        attention_dropout=model_params["attention_dropout"],
+        rms_norm_eps=model_params["rms_norm_eps"],
+        use_sliding_window=model_params["use_sliding_window"],
+        sliding_window=model_params["sliding_window"],
+        lr=training_params["lr"],
+        weight_decay=training_params["weight_decay"],
+        warmup_steps=training_params["warmup_steps"],
+        scheduler_t_max=training_params["scheduler_t_max"],
+        use_attention_mask=data_params.get("eos_token_id") is not None,
+    )
+
+    # Load state dict into reconstructed module
+    # Handle torch.compile() wrapper (_orig_mod prefix) if present
+    state_dict = checkpoint["model"]
+    if any(k.startswith("model._orig_mod.") for k in state_dict.keys()):
+        # Strip _orig_mod prefix from compiled model state dict
+        state_dict = {k.replace("._orig_mod.", "."): v for k, v in state_dict.items()}
+    lightning_module.load_state_dict(state_dict)
+
+    # Extract the actual Qwen3ForCausalLM model
+    model = lightning_module.model
 
     # Setup model with Fabric for inference
     model = fabric.setup(model)
@@ -224,7 +256,7 @@ def main():
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = predict_next_token(
-        model, tokenizer, test_text, fabric, temperature=0.6
+        model, tokenizer, test_text, fabric, temperature=0.5
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -239,13 +271,13 @@ def main():
 
     prompt = "def calculate("
     print(f"\nPrompt: {prompt!r}")
-    print("Generating 100 tokens with temperature=0.3, top_k=50")
+    print("Generating 100 tokens with temperature=0.5, top_k=50")
 
     # Timed generation with KV cache
     print("\n[Generating with StaticCache...]")
     start_time = time.time()
     generated = generate_text(
-        model, tokenizer, prompt, fabric, max_tokens=100, temperature=0.3, top_k=50
+        model, tokenizer, prompt, fabric, max_tokens=100, temperature=0.5, top_k=50
     )
     generation_time = time.time() - start_time
 

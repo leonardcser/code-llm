@@ -66,13 +66,6 @@ def create_qwen3_model(
     return model
 
 
-def count_parameters(model):
-    """Count total and trainable parameters."""
-    total = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return total, trainable
-
-
 class Qwen3(L.LightningModule):
     """Lightning module wrapper for Qwen3 causal language model."""
 
@@ -228,4 +221,6 @@ class Qwen3(L.LightningModule):
 
     def get_parameter_counts(self):
         """Get total and trainable parameter counts."""
-        return count_parameters(self.model)
+        total = sum(p.numel() for p in self.model.parameters())
+        trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        return total, trainable
