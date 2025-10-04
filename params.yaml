@@ -46,6 +46,7 @@ training:
   seed: 42
   warmup_steps: 5 # Number of warmup steps for learning rate
   scheduler_t_max: 50 # T_max for CosineAnnealingLR (epochs)
+  log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
 
 other:
   save_dir: "out/train/checkpoints"

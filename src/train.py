@@ -19,10 +19,13 @@ def train_epoch(
     grad_clip,
     grad_accum_steps,
     max_batches=None,
+    log_every_n_steps=None,
+    epoch=0,
 ):
     """Train for one epoch."""
     model.train()
     train_losses = []
+    global_step = epoch * len(train_loader)
 
     total = min(len(train_loader), max_batches) if max_batches is not None else None
     pbar = tqdm(train_loader, desc="Training", total=total)
@@ -52,6 +55,18 @@ def train_epoch(
         train_losses.append(loss.item())
         pbar.set_postfix({"loss": loss.item()})
 
+        # Log per-step metrics if enabled
+        current_step = global_step + batch_idx
+        if log_every_n_steps is not None and (current_step + 1) % log_every_n_steps == 0:
+            current_lr = optimizer.param_groups[0]["lr"]
+            fabric.log_dict(
+                {
+                    "train_loss_step": loss.item(),
+                    "lr_step": current_lr,
+                },
+                step=current_step,
+            )
+
     # Handle remaining gradients
     if len(train_losses) > 0 and (len(train_losses) % grad_accum_steps != 0):
         if grad_clip > 0:
@@ -79,9 +94,7 @@ def validate(fabric, model, val_loader, max_batches=None):
         val_losses.append(loss.item())
         pbar.set_postfix({"loss": loss.item()})
 
-    out = sum(val_losses) / len(val_losses) if val_losses else 0.0
-    model.train()
-    return out
+    return sum(val_losses) / len(val_losses) if val_losses else 0.0
 
 
 def main():
@@ -205,6 +218,14 @@ def main():
     grad_clip = training_params["grad_clip"]
     grad_accum_steps = training_params.get("gradient_accumulation_steps", 1)
     max_batches_per_epoch = training_params.get("max_batches_per_epoch")
+    log_every_n_steps = training_params.get("log_every_n_steps")
+
+    # Validate scheduler T_max matches epochs
+    scheduler_t_max = training_params["scheduler_t_max"]
+    assert scheduler_t_max == epochs, (
+        f"scheduler_t_max ({scheduler_t_max}) must equal epochs ({epochs}) "
+        "for CosineAnnealingLR to work correctly"
+    )
 
     # Training loop
     fabric.print("\nStarting training...")
@@ -226,6 +247,8 @@ def main():
             grad_clip,
             grad_accum_steps,
             max_batches_per_epoch,
+            log_every_n_steps,
+            epoch,
         )
         fabric.print(f"Train loss: {train_loss:.4f}")
 
@@ -238,19 +261,22 @@ def main():
         )
         fabric.print(f"Val loss: {val_loss:.4f}")
 
+        # Get current LR before stepping scheduler
+        current_lr = optimizer.param_groups[0]["lr"]
+
         # Log metrics via Fabric
         fabric.log_dict(
             {
                 "train_loss": train_loss,
                 "val_loss": val_loss,
-                "lr": scheduler.get_last_lr()[0],
+                "lr": current_lr,
             },
             step=epoch,
         )
 
         # Update learning rate
         scheduler.step()
-        fabric.print(f"Learning rate: {scheduler.get_last_lr()[0]:.6f}")
+        fabric.print(f"Learning rate: {current_lr:.6f}")
 
         # Save checkpoint via Fabric
         state = {
