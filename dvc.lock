@@ -87,18 +87,22 @@ stages:
       md5: c431b167c25ce6941660151a743c7d1b.dir
       size: 871552397
       nfiles: 5
-    - path: src/dataloaders/data_loader.py
+    - path: src/dataloaders/py150.py
       hash: md5
-      md5: d7693de2ac8cce09afab336a82be811a
-      size: 6673
-    - path: src/models/model.py
+      md5: ab28155ed04012c0a26b264834d78627
+      size: 2995
+    - path: src/dataloaders/py150_dataloader.py
       hash: md5
-      md5: d3477080ef61c3593374cb454c14a4fc
-      size: 2338
+      md5: 84bddfce3179707dba648cffe49485cf
+      size: 4571
+    - path: src/models/qwen3.py
+      hash: md5
+      md5: 473e8503ac126c5263b8d5161a99db6d
+      size: 8362
     - path: src/train.py
       hash: md5
-      md5: cfbc0ebea268b7967cba7b036689e5dd
-      size: 11940
+      md5: 76f63feff41790e4e809984a20d13eba
+      size: 10180
     params:
       params.yaml:
         data:
@@ -137,6 +141,7 @@ stages:
           save_dir: out/train/checkpoints
           log_dir: out/train/logs
         training:
+          prefix: qwen3
           batch_size: 32
           epochs: 50
           lr: 0.0001
@@ -150,16 +155,20 @@ stages:
           warmup_steps: 5
           scheduler_t_max: 50
     outs:
-    - path: out/train/checkpoints/best.pt
+    - path: out/train/checkpoints/best.ckpt
       hash: md5
-      md5: 7ff86820215545b91d40ce2fbea7365e
-      size: 475553217
-    - path: out/train/checkpoints/latest.pt
+      md5: f2a1317a4c1f6d838743a6c56b39c736
+      size: 475563463
+    - path: out/train/checkpoints/latest.ckpt
       hash: md5
-      md5: 8a2b8516057e5ad5cfc2de597624f284
-      size: 475557445
+      md5: f2a1317a4c1f6d838743a6c56b39c736
+      size: 475563463
+    - path: out/train/checkpoints/metrics.json
+      hash: md5
+      md5: 5c2655bd0a5dc90f03e17c6670f92522
+      size: 101
     - path: out/train/logs
       hash: md5
-      md5: 3671bc46e0857dcb0ccc75a6756dcfd2.dir
-      size: 24804
-      nfiles: 9
+      md5: 1b847d75762da59b418d56e095298e82.dir
+      size: 28370
+      nfiles: 10

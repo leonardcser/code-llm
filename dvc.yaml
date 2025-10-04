@@ -33,8 +33,8 @@ stages:
       - training
       - other
     outs:
-      - out/train/checkpoints/best.pt
-      - out/train/checkpoints/latest.pt
+      - out/train/checkpoints/best.ckpt
+      - out/train/checkpoints/latest.ckpt
       - out/train/logs:
           persist: true
     metrics:
