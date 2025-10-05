@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <queue>
 #include <reflex/matcher.h>
 #include <reflex/pattern.h>
 #include <thread>

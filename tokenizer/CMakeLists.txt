@@ -13,7 +13,7 @@ endif()
 # Set compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mcpu=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
 
 # Option to build Python bindings
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
@@ -97,6 +97,11 @@ if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
     target_link_libraries(llm_lib PUBLIC absl::flat_hash_map cereal::cereal ReflexLibStatic)
     target_compile_options(llm_lib PRIVATE -Wno-deprecated-declarations)
+
+    # Disable LTO for library when building Python bindings due to GCC thread-local storage issues
+    if(BUILD_PYTHON_BINDINGS)
+        target_compile_options(llm_lib PRIVATE -fno-lto)
+    endif()
 endif()
 
 # Create executables for each entrypoint
@@ -141,6 +146,10 @@ if(BUILD_PYTHON_BINDINGS)
     endif()
     # Link against static reflex library to avoid runtime dependency issues
     target_link_libraries(tokenizer_cpp PRIVATE ReflexLibStatic)
+
+    # Disable LTO for Python bindings to avoid GCC thread-local storage linker issues
+    target_compile_options(tokenizer_cpp PRIVATE -fno-lto)
+    target_link_options(tokenizer_cpp PRIVATE -fno-lto)
 
     # Install the extension module to the package directory
     install(TARGETS tokenizer_cpp LIBRARY DESTINATION tokenizer)
