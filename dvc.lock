@@ -64,7 +64,7 @@ stages:
           split_ratio: 0.7
           seed: 42
           max_unique_words: 0
-          vocab_size: 20259
+          vocab_size: 30259
           pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
             ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
           bos_token: ''
@@ -72,20 +72,20 @@ stages:
           pad_token: <|pad|>
           seq_length: 256
           num_workers: 2
-          eos_token_id: 20256
+          eos_token_id: 30256
     outs:
     - path: out/tokenize
       hash: md5
-      md5: c431b167c25ce6941660151a743c7d1b.dir
-      size: 871552397
+      md5: dcee99e2073dbf4d9bf3699a6dd8a613.dir
+      size: 840119036
       nfiles: 5
   train:
     cmd: uv run python src/train.py
     deps:
     - path: out/tokenize
       hash: md5
-      md5: c431b167c25ce6941660151a743c7d1b.dir
-      size: 871552397
+      md5: dcee99e2073dbf4d9bf3699a6dd8a613.dir
+      size: 840119036
       nfiles: 5
     - path: src/dataloaders/py150.py
       hash: md5
@@ -97,12 +97,12 @@ stages:
       size: 4571
     - path: src/models/qwen3.py
       hash: md5
-      md5: 473e8503ac126c5263b8d5161a99db6d
-      size: 8362
+      md5: c1e14fbf84fc77db31559589a77a3f2c
+      size: 8261
     - path: src/train.py
       hash: md5
-      md5: 76f63feff41790e4e809984a20d13eba
-      size: 10180
+      md5: 543b3d6f374718faadb17f8bb4d467a1
+      size: 11054
     params:
       params.yaml:
         data:
@@ -116,7 +116,7 @@ stages:
           split_ratio: 0.7
           seed: 42
           max_unique_words: 0
-          vocab_size: 20259
+          vocab_size: 30259
           pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
             ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
           bos_token: ''
@@ -124,7 +124,7 @@ stages:
           pad_token: <|pad|>
           seq_length: 256
           num_workers: 2
-          eos_token_id: 20256
+          eos_token_id: 30256
         model:
           hidden_size: 512
           num_hidden_layers: 4
@@ -154,21 +154,22 @@ stages:
           seed: 42
           warmup_steps: 5
           scheduler_t_max: 50
+          log_every_n_steps: 50
     outs:
     - path: out/train/checkpoints/best.ckpt
       hash: md5
-      md5: f2a1317a4c1f6d838743a6c56b39c736
-      size: 475563463
+      md5: c061fa069225f50e8614a6a5201f10d6
+      size: 598442311
     - path: out/train/checkpoints/latest.ckpt
       hash: md5
-      md5: f2a1317a4c1f6d838743a6c56b39c736
-      size: 475563463
+      md5: c061fa069225f50e8614a6a5201f10d6
+      size: 598442311
     - path: out/train/checkpoints/metrics.json
       hash: md5
-      md5: 5c2655bd0a5dc90f03e17c6670f92522
-      size: 101
+      md5: 30a1d8872221150ab6620b5d955a0d64
+      size: 102
     - path: out/train/logs
       hash: md5
-      md5: 1b847d75762da59b418d56e095298e82.dir
-      size: 28370
+      md5: 738c7ca9d73b8667d4e70b0482258c0d.dir
+      size: 73822
       nfiles: 10

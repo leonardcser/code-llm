@@ -9,14 +9,14 @@ data:
   split_ratio: 0.7
   seed: 42
   max_unique_words: 0
-  vocab_size: 20259 # 256 byte tokens + 20000 BPE merges + 3 special tokens (EOS, PAD, UNK)
+  vocab_size: 30259 # 256 byte tokens + 20000 BPE merges + 3 special tokens (EOS, PAD, UNK)
   pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
   bos_token: ""
   eos_token: "<|endoftext|>"
   pad_token: "<|pad|>"
   seq_length: 256
   num_workers: 2
-  eos_token_id: 20256 # <|endoftext|> token for document boundaries
+  eos_token_id: 30256 # <|endoftext|> token for document boundaries
 
 model:
   # Qwen3 architecture parameters

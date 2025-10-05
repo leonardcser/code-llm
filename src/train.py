@@ -57,7 +57,10 @@ def train_epoch(
 
         # Log per-step metrics if enabled
         current_step = global_step + batch_idx
-        if log_every_n_steps is not None and (current_step + 1) % log_every_n_steps == 0:
+        if (
+            log_every_n_steps is not None
+            and (current_step + 1) % log_every_n_steps == 0
+        ):
             current_lr = optimizer.param_groups[0]["lr"]
             fabric.log_dict(
                 {
@@ -286,7 +289,7 @@ def main():
             "epoch": epoch,
             "train_loss": train_loss,
             "val_loss": val_loss,
-            "params": params,
+            "hparams": model.hparams,
         }
 
         # Save latest checkpoint

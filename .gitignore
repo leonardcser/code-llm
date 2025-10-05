@@ -1,5 +1,6 @@
 build
 data/*
 .cache
+.claude
 misc
 __pycache__

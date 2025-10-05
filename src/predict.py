@@ -35,33 +35,8 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
     # Load checkpoint using Fabric (handles device placement automatically)
     checkpoint = fabric.load(checkpoint_path)
 
-    # Extract params from checkpoint
-    params = checkpoint["params"]
-    model_params = params["model"]
-    data_params = params["data"]
-    training_params = params["training"]
-
-    # Reconstruct the Lightning module from params
-    # (fabric.load converts model to state_dict, so we need to recreate it)
-    lightning_module = Qwen3(
-        vocab_size=data_params["vocab_size"],
-        hidden_size=model_params["hidden_size"],
-        num_hidden_layers=model_params["num_hidden_layers"],
-        num_attention_heads=model_params["num_attention_heads"],
-        num_key_value_heads=model_params["num_key_value_heads"],
-        intermediate_size=model_params["intermediate_size"],
-        max_position_embeddings=model_params["max_position_embeddings"],
-        rope_theta=model_params["rope_theta"],
-        attention_dropout=model_params["attention_dropout"],
-        rms_norm_eps=model_params["rms_norm_eps"],
-        use_sliding_window=model_params["use_sliding_window"],
-        sliding_window=model_params["sliding_window"],
-        lr=training_params["lr"],
-        weight_decay=training_params["weight_decay"],
-        warmup_steps=training_params["warmup_steps"],
-        scheduler_t_max=training_params["scheduler_t_max"],
-        use_attention_mask=data_params.get("eos_token_id") is not None,
-    )
+    hparams = checkpoint["hparams"]
+    lightning_module = Qwen3(**hparams)
 
     # Load state dict into reconstructed module
     # Handle torch.compile() wrapper (_orig_mod prefix) if present
@@ -81,7 +56,7 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
     print(
         f"Model loaded (epoch {checkpoint['epoch']}, val_loss: {checkpoint['val_loss']:.4f})"
     )
-    return model, params
+    return model, hparams
 
 
 @torch.no_grad()
@@ -236,7 +211,7 @@ def main():
     print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size})")
 
     # Load model
-    model, _params = load_model(checkpoint_path, fabric)
+    model, _hparams = load_model(checkpoint_path, fabric)
 
     # Enable torch.compile for 2-4x additional speedup during generation
     # Note: First run will be slower due to compilation, subsequent runs are much faster
@@ -269,7 +244,7 @@ def main():
     print("TEXT GENERATION (Optimized with StaticCache)")
     print("=" * 80)
 
-    prompt = "def calculate("
+    prompt = "def sum_list(nums: List[int]"
     print(f"\nPrompt: {prompt!r}")
     print("Generating 100 tokens with temperature=0.5, top_k=50")
 
