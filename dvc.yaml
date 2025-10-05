@@ -1,6 +1,6 @@
 stages:
   tokenize:
-    cmd: uv sync && ./tokenizer/build/tokenize
+    cmd: mkdir -p tokenizer/build && cmake -S tokenizer -B tokenizer/build -DCMAKE_BUILD_TYPE=Release && cmake --build tokenizer/build -j$(nproc) && ./tokenizer/build/tokenize
     deps:
       - tokenizer/CMakeLists.txt
       - tokenizer/src/lib/dataloader.cpp
