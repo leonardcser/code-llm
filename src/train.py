@@ -140,15 +140,22 @@ def main():
         name=run_name,
     )
 
+    # Multi-device configuration
+    devices = training_params["devices"]
+    strategy = training_params["strategy"]
+
     fabric = L.Fabric(
         accelerator=accelerator,
-        devices=1,
+        devices=devices,
+        strategy=strategy,
         precision=precision,
         loggers=logger,
     )
     fabric.launch()
 
-    fabric.print(f"Using {accelerator.upper()} with precision: {precision}")
+    fabric.print(
+        f"Using {accelerator.upper()} with {devices} device(s), strategy: {strategy}, precision: {precision}"
+    )
 
     # Create data module
     fabric.print("\nLoading data...")
