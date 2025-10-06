@@ -4,3 +4,4 @@ data/*
 .claude
 misc
 __pycache__
+.pytest_cache
