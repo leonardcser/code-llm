@@ -15,11 +15,8 @@ stages:
       - tokenizer/src/lib/tokenizer.hpp
       - tokenizer/src/tokenize.cpp
     params:
-      - data.train_file
-      - data.val_file
+      - data.dataset_file
       - data.tok_file
-      - data.train_paths_file
-      - data.val_paths_file
       - data.dataset_path
       - data.glob_pattern
       - data.split_ratio
@@ -45,10 +42,13 @@ stages:
       - src/dataloaders/py150_dataloader.py
       - src/trainers/trainer.py
     params:
-      - data
+      - data.seq_length
+      - data.max_tokens
+      - data.num_workers
+      - data.bos_token
+      - data.eos_token
       - model
       - training
-      - other
     outs:
       - out/train/checkpoints/best.ckpt
       - out/train/checkpoints/latest.ckpt

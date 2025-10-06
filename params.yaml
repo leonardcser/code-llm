@@ -1,20 +1,19 @@
 data:
-  train_file: "out/tokenize/train.bin"
-  val_file: "out/tokenize/val.bin"
+  dataset_file: "out/tokenize/dataset.bin"
   tok_file: "out/tokenize/tok.bin"
-  train_paths_file: "out/tokenize/train_paths.txt"
-  val_paths_file: "out/tokenize/val_paths.txt"
   dataset_path: "data/py150/data"
   glob_pattern: "*.py"
   split_ratio: 0.7
   seed: 42
   max_unique_words: 0
   vocab_size: 20260 # 256 byte tokens + 20000 BPE merges + 4 special tokens (BOS, EOS, PAD, UNK)
-  pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
+  pattern: '''(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
   bos_token: "<|startoftext|>"
   eos_token: "<|endoftext|>"
   pad_token: "<|pad|>"
+
   seq_length: 256
+  max_tokens: 10000000
   num_workers: 6
   bos_token_id: 20256 # <|startoftext|> token for document boundaries
   eos_token_id: 20257 # <|endoftext|> token for document boundaries
@@ -41,7 +40,6 @@ training:
   weight_decay: 0.01
   grad_clip: 1.0
   gradient_accumulation_steps: 4
-  max_batches_per_epoch: 750 # Set to integer to limit batches per epoch, null for no limit
   use_amp: true # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   devices: 1 # Number of devices to use (GPUs/TPUs/etc.)
@@ -50,7 +48,5 @@ training:
   warmup_steps: 3750 # Number of warmup steps for learning rate
   scheduler_t_max_steps: null # T_max for CosineAnnealingLR (steps). Set to null to auto-calculate as epochs × batches_per_epoch
   log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
-
-other:
   save_dir: "out/train/checkpoints"
   log_dir: "out/train/logs"

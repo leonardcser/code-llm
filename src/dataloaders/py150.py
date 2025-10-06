@@ -13,8 +13,8 @@ class Py150DataModule(L.LightningDataModule):
 
     def __init__(
         self,
-        train_file: str,
-        val_file: str,
+        dataset_file: str,
+        split_ratio: float = 0.7,
         seq_length: int = 512,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -22,13 +22,14 @@ class Py150DataModule(L.LightningDataModule):
         seed: Optional[int] = None,
         eos_token_id: Optional[int] = None,
         bos_token_id: Optional[int] = None,
+        max_tokens: int = 0,
     ):
         """
         Initialize Py150 DataModule.
 
         Args:
-            train_file: Path to training tokens binary file
-            val_file: Path to validation tokens binary file
+            dataset_file: Path to combined dataset tokens binary file
+            split_ratio: Ratio of data to use for training (rest for validation)
             seq_length: Length of each sequence
             batch_size: Batch size
             num_workers: Number of workers for data loading
@@ -36,12 +37,13 @@ class Py150DataModule(L.LightningDataModule):
             seed: Random seed for reproducibility
             eos_token_id: Token ID for end-of-sequence (enables attention masking)
             bos_token_id: Token ID for beginning-of-sequence (enables attention masking)
+            max_tokens: Maximum number of tokens to load (0 for no limit)
         """
         super().__init__()
         self.save_hyperparameters()
 
-        self.train_file = train_file
-        self.val_file = val_file
+        self.dataset_file = dataset_file
+        self.split_ratio = split_ratio
         self.seq_length = seq_length
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -49,6 +51,7 @@ class Py150DataModule(L.LightningDataModule):
         self.seed = seed
         self.eos_token_id = eos_token_id
         self.bos_token_id = bos_token_id
+        self.max_tokens = max_tokens
 
         self.train_dataset = None
         self.val_dataset = None
@@ -57,15 +60,31 @@ class Py150DataModule(L.LightningDataModule):
         """Setup datasets for training and validation."""
         if stage == "fit" or stage is None:
             self.train_dataset = TokenDataset(
-                self.train_file, self.seq_length, self.eos_token_id, self.bos_token_id
+                self.dataset_file,
+                self.seq_length,
+                self.eos_token_id,
+                self.bos_token_id,
+                self.split_ratio,
+                "train",
+                self.seed,
+                self.max_tokens,
             )
             self.val_dataset = TokenDataset(
-                self.val_file, self.seq_length, self.eos_token_id, self.bos_token_id
+                self.dataset_file,
+                self.seq_length,
+                self.eos_token_id,
+                self.bos_token_id,
+                self.split_ratio,
+                "val",
+                self.seed,
+                self.max_tokens,
             )
 
     def train_dataloader(self):
         """Create training dataloader."""
-        assert self.train_dataset is not None, "Dataset not initialized. Call setup() first."
+        assert self.train_dataset is not None, (
+            "Dataset not initialized. Call setup() first."
+        )
 
         # Create generator for reproducible shuffling
         generator = None
@@ -84,7 +103,9 @@ class Py150DataModule(L.LightningDataModule):
 
     def val_dataloader(self):
         """Create validation dataloader."""
-        assert self.val_dataset is not None, "Dataset not initialized. Call setup() first."
+        assert self.val_dataset is not None, (
+            "Dataset not initialized. Call setup() first."
+        )
 
         return DataLoader(
             self.val_dataset,

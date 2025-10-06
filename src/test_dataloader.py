@@ -11,12 +11,11 @@ with open("params.yaml", "r") as f:
 data_params = params["data"]
 model_params = params["model"]
 training_params = params["training"]
-other_params = params["other"]
 
 # Set random seeds for reproducibility
-seed = training_params.get("seed", 42)
-eos_token_id = data_params.get("eos_token_id")
-bos_token_id = data_params.get("bos_token_id")
+seed = training_params["seed"]
+eos_token_id = data_params["eos_token_id"]
+bos_token_id = data_params["bos_token_id"]
 
 # Create datasets
 train_dataset = TokenDataset(
@@ -98,7 +97,9 @@ for batch_idx, batch in enumerate(train_loader):
             print(f"\nTokenizer vocab size: {tokenizer.vocab_size}")
             print(f"Tokenizer BOS token ID: {tokenizer.bos_token_id}")
             print(f"Tokenizer EOS token ID: {tokenizer.eos_token_id}")
-            print(f"\nFirst token in input (should be BOS={bos_token_id}): {first_input[0].item()}")
+            print(
+                f"\nFirst token in input (should be BOS={bos_token_id}): {first_input[0].item()}"
+            )
             print(f"Input tokens (first 30):  {first_input[:30].tolist()}")
             print(f"Target tokens (first 30): {first_target[:30].tolist()}")
             print(f"Input tokens (last 30):   {first_input[-30:].tolist()}")

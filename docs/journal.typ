@@ -188,6 +188,23 @@ I updated the scheduler to step on every step instead of epoch. I also scaled
 the training loss over the accumulated batches instead of using the loss of the
 step.
 
+== Tokenizer Regex
+
+I realized that it cannot hurt to join compound expression groupping. So I added
+the following capture group:
+
+```re
+'(?i:[sdmt]|ll|ve|re)
+```
+
+== Data Distribution
+
+I also removed `max_batches_per_epoch`, replacing it with `max_tokens` such that
+we have a fair distribuite. Before the training batch was shuffled and all data
+was included but limited to 750. However the evaluation batch was not shuffled
+but also limited to 750. This meant that the model was training on more that 70%
+training data, and the validation data was not representative.
+
 == Run \#1
 
 In progress

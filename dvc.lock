@@ -7,8 +7,8 @@ stages:
     deps:
     - path: tokenizer/CMakeLists.txt
       hash: md5
-      md5: 772b3ea301b564a9d41d5d57310ea81f
-      size: 5310
+      md5: e4e0c0df6711c746ff447ed5f4c2f13f
+      size: 5323
     - path: tokenizer/src/lib/dataloader.cpp
       hash: md5
       md5: 53ebf2ee5ada158ea331af08bcf08c69
@@ -51,34 +51,31 @@ stages:
       size: 2969
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 33295b6d287a03f9ab2f10846a86cf61
-      size: 5185
+      md5: 54d4a2dc5b1ad8fa2dc6f97292d7ddf2
+      size: 3987
     params:
       params.yaml:
         data.bos_token: <|startoftext|>
         data.bos_token_id: 20256
+        data.dataset_file: out/tokenize/dataset.bin
         data.dataset_path: data/py150/data
         data.eos_token: <|endoftext|>
         data.eos_token_id: 20257
         data.glob_pattern: '*.py'
         data.max_unique_words: 0
         data.pad_token: <|pad|>
-        data.pattern: ' ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
-          ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
+        data.pattern: "'(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\\.\\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
+          ?[^ %_A-Za-z0-9]+(?: \")?[\\r\\n]*|%|\\s+$|\\s+(?=\\s)|\\s"
         data.seed: 42
         data.split_ratio: 0.7
         data.tok_file: out/tokenize/tok.bin
-        data.train_file: out/tokenize/train.bin
-        data.train_paths_file: out/tokenize/train_paths.txt
-        data.val_file: out/tokenize/val.bin
-        data.val_paths_file: out/tokenize/val_paths.txt
         data.vocab_size: 20260
     outs:
     - path: out/tokenize
       hash: md5
-      md5: 2ae823d219c18762a37a0220ed7637eb.dir
-      size: 871552425
-      nfiles: 5
+      md5: 4e90246a8c7f70c0d9a2a4d5d86835a5.dir
+      size: 859062588
+      nfiles: 2
   train:
     cmd: uv run python src/train.py
     deps:

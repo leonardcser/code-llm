@@ -19,7 +19,6 @@ def main():
     data_params = params["data"]
     model_params = params["model"]
     training_params = params["training"]
-    other_params = params["other"]
 
     # Set random seeds for reproducibility
     seed = training_params["seed"]
@@ -29,7 +28,7 @@ def main():
     torch.set_float32_matmul_precision("high")
 
     # Setup directories
-    save_dir = Path(other_params["save_dir"])
+    save_dir = Path(training_params["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)
 
     prefix = training_params["prefix"]
@@ -48,7 +47,7 @@ def main():
 
     # Initialize logger
     logger = TensorBoardLogger(
-        root_dir=str(Path(other_params["log_dir"])),
+        root_dir=str(Path(training_params["log_dir"])),
         name=run_name,
     )
 
@@ -62,8 +61,8 @@ def main():
 
     # Create data module
     print("\nLoading data...")
-    eos_token_id = data_params.get("eos_token_id")
-    bos_token_id = data_params.get("bos_token_id")
+    eos_token_id = data_params["eos_token_id"]
+    bos_token_id = data_params["bos_token_id"]
     use_attention_mask = eos_token_id is not None or bos_token_id is not None
 
     if use_attention_mask:
@@ -73,8 +72,8 @@ def main():
             print(f"Using attention masking with BOS token ID: {bos_token_id}")
 
     data_module = Py150DataModule(
-        train_file=data_params["train_file"],
-        val_file=data_params["val_file"],
+        dataset_file=data_params["dataset_file"],
+        split_ratio=data_params["split_ratio"],
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],
         num_workers=data_params["num_workers"],
@@ -82,6 +81,7 @@ def main():
         seed=seed,
         eos_token_id=eos_token_id,
         bos_token_id=bos_token_id,
+        max_tokens=data_params["max_tokens"],
     )
     data_module.setup("fit")
 
@@ -126,17 +126,16 @@ def main():
     epochs = training_params["epochs"]
     grad_clip = training_params["grad_clip"]
     grad_accum_steps = training_params.get("gradient_accumulation_steps", 1)
-    max_batches_per_epoch = training_params.get("max_batches_per_epoch")
     log_every_n_steps = training_params.get("log_every_n_steps")
+
+    # Convert warmup_steps from batch steps to optimizer steps
+    warmup_steps_batch = training_params["warmup_steps"]
+    warmup_steps_optimizer = math.ceil(warmup_steps_batch / grad_accum_steps)
 
     # Calculate scheduler_t_max_steps if not provided
     scheduler_t_max_steps = training_params.get("scheduler_t_max_steps")
     if scheduler_t_max_steps is None:
-        batches_per_epoch = (
-            max_batches_per_epoch
-            if max_batches_per_epoch is not None
-            else len(train_loader)
-        )
+        batches_per_epoch = len(train_loader)
         optimizer_steps_per_epoch = math.ceil(batches_per_epoch / grad_accum_steps)
         scheduler_t_max_steps = epochs * optimizer_steps_per_epoch
         print(
@@ -144,8 +143,13 @@ def main():
             f"({epochs} epochs × {optimizer_steps_per_epoch} optimizer steps per epoch)"
         )
 
-    # Update model with calculated scheduler_t_max_steps
+    # Update model with calculated scheduler_t_max_steps and converted warmup_steps
     model.scheduler_t_max_steps = scheduler_t_max_steps
+    model.warmup_steps = warmup_steps_optimizer
+    print(
+        f"Converted warmup_steps: {warmup_steps_batch} batch steps → "
+        f"{warmup_steps_optimizer} optimizer steps"
+    )
 
     # Log hyperparameters to TensorBoard
     hparams_dict = {
@@ -168,7 +172,8 @@ def main():
         "training/weight_decay": training_params["weight_decay"],
         "training/grad_clip": training_params["grad_clip"],
         "training/gradient_accumulation_steps": grad_accum_steps,
-        "training/warmup_steps": training_params["warmup_steps"],
+        "training/warmup_steps_batch": warmup_steps_batch,
+        "training/warmup_steps_optimizer": warmup_steps_optimizer,
         "training/use_amp": training_params["use_amp"],
         "training/seed": training_params["seed"],
         "training/devices": training_params["devices"],
@@ -195,7 +200,6 @@ def main():
         max_epochs=epochs,
         grad_clip=grad_clip,
         gradient_accumulation_steps=grad_accum_steps,
-        max_batches_per_epoch=max_batches_per_epoch,
         log_every_n_steps=log_every_n_steps,
         save_dir=str(save_dir),
         use_attention_mask=use_attention_mask,

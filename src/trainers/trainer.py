@@ -32,7 +32,6 @@ class Trainer:
         max_epochs: int = 100,
         grad_clip: float = 1.0,
         gradient_accumulation_steps: int = 1,
-        max_batches_per_epoch: Optional[int] = None,
         log_every_n_steps: Optional[int] = None,
         save_dir: str = "./out/train/checkpoints",
         use_attention_mask: bool = False,
@@ -49,7 +48,6 @@ class Trainer:
             max_epochs: Maximum number of training epochs
             grad_clip: Gradient clipping max norm (0 to disable)
             gradient_accumulation_steps: Number of batches to accumulate before optimizer step
-            max_batches_per_epoch: Limit batches per epoch (None for unlimited)
             log_every_n_steps: Log training metrics every N steps (None to disable)
             save_dir: Directory for saving checkpoints
             use_attention_mask: Whether batches include attention masks
@@ -65,7 +63,6 @@ class Trainer:
         self.max_epochs = max_epochs
         self.grad_clip = grad_clip
         self.gradient_accumulation_steps = gradient_accumulation_steps
-        self.max_batches_per_epoch = max_batches_per_epoch
         self.log_every_n_steps = log_every_n_steps
         self.save_dir = Path(save_dir)
         self.use_attention_mask = use_attention_mask
@@ -188,20 +185,10 @@ class Trainer:
         model.train()
         train_losses = []
 
-        total = (
-            min(len(train_loader), self.max_batches_per_epoch)
-            if self.max_batches_per_epoch is not None
-            else len(train_loader)
-        )
+        total = len(train_loader)
         pbar = self._create_progress_bar(train_loader, total, "Training")
 
         for batch_idx, batch in enumerate(pbar):
-            if (
-                self.max_batches_per_epoch is not None
-                and batch_idx >= self.max_batches_per_epoch
-            ):
-                break
-
             # Determine if we're accumulating gradients
             is_accumulating = (batch_idx + 1) % self.gradient_accumulation_steps != 0
 
@@ -286,20 +273,10 @@ class Trainer:
         model.eval()
         val_losses = []
 
-        total = (
-            min(len(val_loader), self.max_batches_per_epoch)
-            if self.max_batches_per_epoch is not None
-            else len(val_loader)
-        )
+        total = len(val_loader)
         pbar = self._create_progress_bar(val_loader, total, "Validation")
 
         for batch_idx, batch in enumerate(pbar):
-            if (
-                self.max_batches_per_epoch is not None
-                and batch_idx >= self.max_batches_per_epoch
-            ):
-                break
-
             # Forward pass and compute loss
             loss_output = model.validation_step(batch, batch_idx)
             # Ensure loss is a tensor

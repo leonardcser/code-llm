@@ -15,6 +15,10 @@ class TokenDataset(Dataset):
         seq_length: int = 512,
         eos_token_id: Optional[int] = None,
         bos_token_id: Optional[int] = None,
+        split_ratio: float = 0.7,
+        split_type: str = "train",
+        seed: Optional[int] = None,
+        max_tokens: int = 0,
     ):
         """
         Args:
@@ -22,14 +26,33 @@ class TokenDataset(Dataset):
             seq_length: Length of each training sequence
             eos_token_id: Token ID for end-of-sequence (document boundaries)
             bos_token_id: Token ID for beginning-of-sequence (document boundaries)
+            split_ratio: Ratio of data to use for training (rest for validation)
+            split_type: Either "train" or "val" to specify which split to use
+            seed: Random seed for reproducible splitting
+            max_tokens: Maximum number of tokens to load (0 for no limit)
         """
         self.seq_length = seq_length
         self.eos_token_id = eos_token_id
         self.bos_token_id = bos_token_id
 
         # Load tokens from binary file (uint32)
-        tokens = np.fromfile(token_file, dtype=np.uint32)
-        self.tokens = torch.from_numpy(tokens).long()
+        all_tokens = np.fromfile(token_file, dtype=np.uint32)
+        all_tokens = torch.from_numpy(all_tokens).long()
+
+        # Truncate tokens if max_tokens is specified
+        if max_tokens > 0 and len(all_tokens) > max_tokens:
+            print(f"Truncating tokens from {len(all_tokens)} to {max_tokens}")
+            all_tokens = all_tokens[:max_tokens]
+
+        # Split tokens based on split_ratio
+        split_idx = int(len(all_tokens) * split_ratio)
+
+        if split_type == "train":
+            self.tokens = all_tokens[:split_idx]
+        elif split_type == "val":
+            self.tokens = all_tokens[split_idx:]
+        else:
+            raise ValueError(f"split_type must be 'train' or 'val', got {split_type}")
 
         # Calculate number of sequences
         if self.bos_token_id is not None:
@@ -39,7 +62,9 @@ class TokenDataset(Dataset):
             # Original behavior without BOS requires seq_length + 1 tokens per sequence
             self.n_sequences = (len(self.tokens) - 1) // self.seq_length
 
-        print(f"Loaded {len(self.tokens)} tokens from {token_file}")
+        print(
+            f"Loaded {len(self.tokens)} tokens from {token_file} ({split_type} split)"
+        )
         print(f"Created {self.n_sequences} sequences of length {seq_length}")
         if eos_token_id is not None:
             eos_count = (self.tokens == eos_token_id).sum().item()
