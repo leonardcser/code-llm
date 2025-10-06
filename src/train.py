@@ -100,8 +100,8 @@ def main():
         sliding_window=model_params["sliding_window"],
         lr=training_params["lr"],
         weight_decay=training_params["weight_decay"],
-        warmup_epochs=training_params["warmup_epochs"],
-        scheduler_t_max=training_params["scheduler_t_max"],
+        warmup_steps=training_params["warmup_steps"],
+        scheduler_t_max_steps=training_params["scheduler_t_max_steps"],
         use_attention_mask=use_attention_mask,
     )
 
@@ -127,12 +127,17 @@ def main():
     max_batches_per_epoch = training_params.get("max_batches_per_epoch")
     log_every_n_steps = training_params.get("log_every_n_steps")
 
-    # Validate scheduler T_max matches epochs
-    scheduler_t_max = training_params["scheduler_t_max"]
-    assert scheduler_t_max == epochs, (
-        f"scheduler_t_max ({scheduler_t_max}) must equal epochs ({epochs}) "
-        "for CosineAnnealingLR to work correctly"
-    )
+    # Calculate scheduler_t_max_steps if not provided
+    scheduler_t_max_steps = training_params.get("scheduler_t_max_steps")
+    if scheduler_t_max_steps is None:
+        batches_per_epoch = (
+            max_batches_per_epoch if max_batches_per_epoch is not None else len(train_loader)
+        )
+        scheduler_t_max_steps = epochs * batches_per_epoch
+        print(f"\nAuto-calculated scheduler_t_max_steps: {scheduler_t_max_steps} ({epochs} epochs × {batches_per_epoch} batches)")
+
+    # Update model with calculated scheduler_t_max_steps
+    model.scheduler_t_max_steps = scheduler_t_max_steps
 
     # Log hyperparameters to TensorBoard
     hparams_dict = {
@@ -155,7 +160,7 @@ def main():
         "training/weight_decay": training_params["weight_decay"],
         "training/grad_clip": training_params["grad_clip"],
         "training/gradient_accumulation_steps": grad_accum_steps,
-        "training/warmup_epochs": training_params["warmup_epochs"],
+        "training/warmup_steps": training_params["warmup_steps"],
         "training/use_amp": training_params["use_amp"],
         "training/seed": training_params["seed"],
         "training/devices": training_params["devices"],

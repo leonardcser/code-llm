@@ -2,16 +2,17 @@
 
 import json
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 import lightning as L
+from lightning.fabric.loggers.logger import Logger
 import torch
 from tqdm import tqdm
 
 
 class Trainer:
     """Custom Trainer for LightningModule using Fabric.
-    
+
     This trainer is specifically designed for language model training with features like:
     - Gradient accumulation
     - Gradient clipping
@@ -27,7 +28,7 @@ class Trainer:
         strategy: str = "auto",
         devices: Union[list[int], str, int] = "auto",
         precision: str = "32-true",
-        loggers: Optional[Any] = None,
+        loggers: Optional[Logger] = None,
         max_epochs: int = 100,
         grad_clip: float = 1.0,
         gradient_accumulation_steps: int = 1,
@@ -104,11 +105,15 @@ class Trainer:
 
         # Setup model, optimizer, and dataloaders with Fabric
         model, optimizer = self.fabric.setup(model, optimizer)
-        train_loader, val_loader = self.fabric.setup_dataloaders(train_loader, val_loader)
+        train_loader, val_loader = self.fabric.setup_dataloaders(
+            train_loader, val_loader
+        )
 
         # Log hyperparameters if provided
         if hparams is not None and self.fabric.logger is not None:
-            self.fabric.logger.log_hyperparams(hparams, metrics={"hp/val_loss": float("inf")})
+            self.fabric.logger.log_hyperparams(
+                hparams, metrics={"hp/val_loss": float("inf")}
+            )
 
         self.fabric.print("\nStarting training...")
 
@@ -126,14 +131,14 @@ class Trainer:
             self.fabric.print(f"\nEpoch {epoch + 1}/{self.max_epochs}")
 
             # Training phase
-            train_loss = self.train_loop(model, optimizer, train_loader)
+            train_loss = self.train_loop(model, optimizer, scheduler, train_loader)
             self.fabric.print(f"Train loss: {train_loss:.4f}")
 
             # Validation phase
             val_loss = self.val_loop(model, val_loader)
             self.fabric.print(f"Val loss: {val_loss:.4f}")
 
-            # Get current learning rate before stepping scheduler
+            # Get current learning rate for logging
             current_lr = optimizer.param_groups[0]["lr"]
 
             # Log epoch-level metrics
@@ -146,8 +151,6 @@ class Trainer:
                 step=self.global_step,
             )
 
-            # Step the scheduler
-            scheduler.step()  # type: ignore[call-arg]
             self.fabric.print(f"Learning rate: {current_lr:.6f}")
 
             # Save checkpoints
@@ -167,6 +170,7 @@ class Trainer:
         self,
         model: L.LightningModule,
         optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loader: torch.utils.data.DataLoader,
     ) -> float:
         """
@@ -175,6 +179,7 @@ class Trainer:
         Args:
             model: LightningModule to train
             optimizer: Optimizer
+            scheduler: Learning rate scheduler
             train_loader: Training data loader
 
         Returns:
@@ -191,7 +196,10 @@ class Trainer:
         pbar = self._create_progress_bar(train_loader, total, "Training")
 
         for batch_idx, batch in enumerate(pbar):
-            if self.max_batches_per_epoch is not None and batch_idx >= self.max_batches_per_epoch:
+            if (
+                self.max_batches_per_epoch is not None
+                and batch_idx >= self.max_batches_per_epoch
+            ):
                 break
 
             # Determine if we're accumulating gradients
@@ -218,16 +226,24 @@ class Trainer:
             if not is_accumulating:
                 # Gradient clipping
                 if self.grad_clip > 0:
-                    self.fabric.clip_gradients(model, optimizer, max_norm=self.grad_clip)
+                    self.fabric.clip_gradients(
+                        model, optimizer, max_norm=self.grad_clip
+                    )
 
                 optimizer.step()
                 optimizer.zero_grad()
+
+                # Step the scheduler after optimizer step
+                scheduler.step()
 
             train_losses.append(loss.item())
             self._update_progress_bar(pbar, {"loss": loss.item()})
 
             # Log per-step metrics if enabled
-            if self.log_every_n_steps is not None and (self.global_step + 1) % self.log_every_n_steps == 0:
+            if (
+                self.log_every_n_steps is not None
+                and (self.global_step + 1) % self.log_every_n_steps == 0
+            ):
                 self.fabric.log_dict(
                     {"loss/train_step": loss.item()},
                     step=self.global_step,
@@ -236,11 +252,14 @@ class Trainer:
             self.global_step += 1
 
         # Handle remaining gradients at end of epoch
-        if len(train_losses) > 0 and (len(train_losses) % self.gradient_accumulation_steps != 0):
+        if len(train_losses) > 0 and (
+            len(train_losses) % self.gradient_accumulation_steps != 0
+        ):
             if self.grad_clip > 0:
                 self.fabric.clip_gradients(model, optimizer, max_norm=self.grad_clip)
             optimizer.step()
             optimizer.zero_grad()
+            scheduler.step()
 
         return sum(train_losses) / len(train_losses) if train_losses else 0.0
 
@@ -271,7 +290,10 @@ class Trainer:
         pbar = self._create_progress_bar(val_loader, total, "Validation")
 
         for batch_idx, batch in enumerate(pbar):
-            if self.max_batches_per_epoch is not None and batch_idx >= self.max_batches_per_epoch:
+            if (
+                self.max_batches_per_epoch is not None
+                and batch_idx >= self.max_batches_per_epoch
+            ):
                 break
 
             # Forward pass and compute loss
@@ -291,7 +313,7 @@ class Trainer:
         self,
         model: L.LightningModule,
         optimizer: torch.optim.Optimizer,
-        scheduler: Any,
+        scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loss: float,
         val_loss: float,
     ) -> None:
@@ -339,7 +361,9 @@ class Trainer:
             with open(self.save_dir / "metrics.json", "w") as f:
                 json.dump(metrics, f, indent=2)
 
-    def _save_final_metrics(self, final_train_loss: float, final_val_loss: float) -> None:
+    def _save_final_metrics(
+        self, final_train_loss: float, final_val_loss: float
+    ) -> None:
         """
         Save final metrics after training completes.
 
@@ -399,4 +423,3 @@ class Trainer:
         """
         if isinstance(pbar, tqdm):
             pbar.set_postfix(metrics)
-

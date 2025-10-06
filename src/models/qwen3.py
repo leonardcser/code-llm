@@ -85,8 +85,8 @@ class Qwen3(L.LightningModule):
         sliding_window: int = 4096,
         lr: float = 1e-4,
         weight_decay: float = 0.01,
-        warmup_epochs: int = 0,
-        scheduler_t_max: int = 50,
+        warmup_steps: int = 0,
+        scheduler_t_max_steps: int | None = None,
         use_attention_mask: bool = False,
     ):
         """
@@ -107,8 +107,8 @@ class Qwen3(L.LightningModule):
             sliding_window: Sliding window size
             lr: Learning rate
             weight_decay: Weight decay for AdamW
-            warmup_epochs: Number of warmup epochs for learning rate
-            scheduler_t_max: T_max for CosineAnnealingLR
+            warmup_steps: Number of warmup steps for learning rate
+            scheduler_t_max_steps: T_max for CosineAnnealingLR (in steps). Will be auto-calculated if None.
             use_attention_mask: Whether to use attention masking for document boundaries
         """
         super().__init__()
@@ -132,8 +132,8 @@ class Qwen3(L.LightningModule):
 
         self.lr = lr
         self.weight_decay = weight_decay
-        self.warmup_epochs = warmup_epochs
-        self.scheduler_t_max = scheduler_t_max
+        self.warmup_steps = warmup_steps
+        self.scheduler_t_max_steps = scheduler_t_max_steps
         self.use_attention_mask = use_attention_mask
 
     def forward(self, x, attention_mask=None, position_ids=None):
@@ -192,29 +192,30 @@ class Qwen3(L.LightningModule):
         )
 
         # Setup learning rate scheduler with warmup
-        if self.warmup_epochs > 0:
+        # Note: scheduler_t_max_steps will be set by train.py if None
+        if self.warmup_steps > 0:
             # Warmup scheduler: linearly increase LR from 0 to target LR
             warmup_scheduler = LambdaLR(
-                optimizer, lr_lambda=lambda epoch: min(1.0, (epoch + 1) / self.warmup_epochs)
+                optimizer, lr_lambda=lambda step: min(1.0, (step + 1) / self.warmup_steps)
             )
             # Cosine annealing after warmup
             cosine_scheduler = CosineAnnealingLR(
-                optimizer, T_max=self.scheduler_t_max - self.warmup_epochs
+                optimizer, T_max=self.scheduler_t_max_steps - self.warmup_steps
             )
             # Combine warmup + cosine
             scheduler = SequentialLR(
                 optimizer,
                 schedulers=[warmup_scheduler, cosine_scheduler],
-                milestones=[self.warmup_epochs],
+                milestones=[self.warmup_steps],
             )
         else:
-            scheduler = CosineAnnealingLR(optimizer, T_max=self.scheduler_t_max)
+            scheduler = CosineAnnealingLR(optimizer, T_max=self.scheduler_t_max_steps)
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "epoch",
+                "interval": "step",
                 "frequency": 1,
             },
         }
