@@ -21,6 +21,7 @@ class Py150DataModule(L.LightningDataModule):
         pin_memory: bool = False,
         seed: Optional[int] = None,
         eos_token_id: Optional[int] = None,
+        bos_token_id: Optional[int] = None,
     ):
         """
         Initialize Py150 DataModule.
@@ -34,6 +35,7 @@ class Py150DataModule(L.LightningDataModule):
             pin_memory: Pin memory for faster data transfer (use only for CUDA)
             seed: Random seed for reproducibility
             eos_token_id: Token ID for end-of-sequence (enables attention masking)
+            bos_token_id: Token ID for beginning-of-sequence (enables attention masking)
         """
         super().__init__()
         self.save_hyperparameters()
@@ -46,6 +48,7 @@ class Py150DataModule(L.LightningDataModule):
         self.pin_memory = pin_memory
         self.seed = seed
         self.eos_token_id = eos_token_id
+        self.bos_token_id = bos_token_id
 
         self.train_dataset = None
         self.val_dataset = None
@@ -54,10 +57,10 @@ class Py150DataModule(L.LightningDataModule):
         """Setup datasets for training and validation."""
         if stage == "fit" or stage is None:
             self.train_dataset = TokenDataset(
-                self.train_file, self.seq_length, self.eos_token_id
+                self.train_file, self.seq_length, self.eos_token_id, self.bos_token_id
             )
             self.val_dataset = TokenDataset(
-                self.val_file, self.seq_length, self.eos_token_id
+                self.val_file, self.seq_length, self.eos_token_id, self.bos_token_id
             )
 
     def train_dataloader(self):

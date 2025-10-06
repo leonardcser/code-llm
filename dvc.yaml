@@ -15,7 +15,23 @@ stages:
       - tokenizer/src/lib/tokenizer.hpp
       - tokenizer/src/tokenize.cpp
     params:
-      - data
+      - data.train_file
+      - data.val_file
+      - data.tok_file
+      - data.train_paths_file
+      - data.val_paths_file
+      - data.dataset_path
+      - data.glob_pattern
+      - data.split_ratio
+      - data.seed
+      - data.max_unique_words
+      - data.vocab_size
+      - data.pattern
+      - data.bos_token
+      - data.eos_token
+      - data.pad_token
+      - data.bos_token_id
+      - data.eos_token_id
     outs:
       - out/tokenize
 

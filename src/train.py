@@ -20,12 +20,11 @@ def train_epoch(
     grad_accum_steps,
     max_batches=None,
     log_every_n_steps=None,
-    epoch=0,
+    total_steps=0,
 ):
     """Train for one epoch."""
     model.train()
     train_losses = []
-    global_step = epoch * len(train_loader)
 
     total = min(len(train_loader), max_batches) if max_batches is not None else None
     pbar = tqdm(train_loader, desc="Training", total=total)
@@ -56,10 +55,9 @@ def train_epoch(
         pbar.set_postfix({"loss": loss.item()})
 
         # Log per-step metrics if enabled
-        current_step = global_step + batch_idx
         if (
             log_every_n_steps is not None
-            and (current_step + 1) % log_every_n_steps == 0
+            and (total_steps + 1) % log_every_n_steps == 0
         ):
             current_lr = optimizer.param_groups[0]["lr"]
             fabric.log_dict(
@@ -67,8 +65,10 @@ def train_epoch(
                     "train_loss_step": loss.item(),
                     "lr_step": current_lr,
                 },
-                step=current_step,
+                step=total_steps,
             )
+
+        total_steps += 1
 
     # Handle remaining gradients
     if len(train_losses) > 0 and (len(train_losses) % grad_accum_steps != 0):
@@ -77,7 +77,8 @@ def train_epoch(
         optimizer.step()
         optimizer.zero_grad()
 
-    return sum(train_losses) / len(train_losses) if train_losses else 0.0
+    avg_loss = sum(train_losses) / len(train_losses) if train_losses else 0.0
+    return avg_loss, total_steps
 
 
 @torch.no_grad()
@@ -160,10 +161,14 @@ def main():
     # Create data module
     fabric.print("\nLoading data...")
     eos_token_id = data_params.get("eos_token_id")
-    use_attention_mask = eos_token_id is not None
+    bos_token_id = data_params.get("bos_token_id")
+    use_attention_mask = eos_token_id is not None or bos_token_id is not None
 
     if use_attention_mask:
-        fabric.print(f"Using attention masking with EOS token ID: {eos_token_id}")
+        if eos_token_id is not None:
+            fabric.print(f"Using attention masking with EOS token ID: {eos_token_id}")
+        if bos_token_id is not None:
+            fabric.print(f"Using attention masking with BOS token ID: {bos_token_id}")
 
     data_module = Py150DataModule(
         train_file=data_params["train_file"],
@@ -174,6 +179,7 @@ def main():
         pin_memory=False,  # Don't use pin_memory on MPS
         seed=seed,
         eos_token_id=eos_token_id,
+        bos_token_id=bos_token_id,
     )
     data_module.setup("fit")
 
@@ -237,6 +243,46 @@ def main():
         "for CosineAnnealingLR to work correctly"
     )
 
+    # Log hyperparameters to TensorBoard
+    hparams_dict = {
+        # Model params
+        "model/vocab_size": data_params["vocab_size"],
+        "model/hidden_size": model_params["hidden_size"],
+        "model/num_hidden_layers": model_params["num_hidden_layers"],
+        "model/num_attention_heads": model_params["num_attention_heads"],
+        "model/num_key_value_heads": model_params["num_key_value_heads"],
+        "model/intermediate_size": model_params["intermediate_size"],
+        "model/max_position_embeddings": model_params["max_position_embeddings"],
+        "model/rope_theta": model_params["rope_theta"],
+        "model/attention_dropout": model_params["attention_dropout"],
+        "model/use_sliding_window": model_params["use_sliding_window"],
+        "model/sliding_window": model_params["sliding_window"],
+        # Training params
+        "training/lr": training_params["lr"],
+        "training/batch_size": training_params["batch_size"],
+        "training/epochs": training_params["epochs"],
+        "training/weight_decay": training_params["weight_decay"],
+        "training/grad_clip": training_params["grad_clip"],
+        "training/gradient_accumulation_steps": grad_accum_steps,
+        "training/warmup_steps": training_params["warmup_steps"],
+        "training/use_amp": training_params["use_amp"],
+        "training/seed": training_params["seed"],
+        "training/devices": training_params["devices"],
+        "training/strategy": training_params["strategy"],
+        # Data params
+        "data/seq_length": data_params["seq_length"],
+        "data/num_workers": data_params["num_workers"],
+        # System
+        "system/accelerator": accelerator,
+        "system/precision": precision,
+        "model/total_params": total_params,
+        "model/trainable_params": trainable_params,
+    }
+    if compile_mode:
+        hparams_dict["training/compile_mode"] = compile_mode
+
+    fabric.logger.log_hyperparams(hparams_dict, {"hp/val_loss": float("inf")})
+
     # Training loop
     fabric.print("\nStarting training...")
     best_val_loss = float("inf")
@@ -244,12 +290,13 @@ def main():
     best_epoch = 0
     train_loss = 0
     val_loss = 0
+    total_steps = 0
 
     for epoch in range(epochs):
         fabric.print(f"\nEpoch {epoch + 1}/{epochs}")
 
         # Train
-        train_loss = train_epoch(
+        train_loss, total_steps = train_epoch(
             fabric,
             model,
             optimizer,
@@ -258,7 +305,7 @@ def main():
             grad_accum_steps,
             max_batches_per_epoch,
             log_every_n_steps,
-            epoch,
+            total_steps,
         )
         fabric.print(f"Train loss: {train_loss:.4f}")
 
@@ -309,6 +356,11 @@ def main():
             best_epoch = epoch
             fabric.save(save_dir / "best.ckpt", state)
             fabric.print(f"Saved best model (val_loss: {val_loss:.4f})")
+
+            # Update hyperparameter metric in TensorBoard
+            fabric.logger.experiment.add_hparams(
+                hparams_dict, {"hp/val_loss": float(val_loss)}
+            )
 
             # Save DVC metrics for best model
             metrics_path = save_dir / "metrics.json"

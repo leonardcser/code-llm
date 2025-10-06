@@ -16,17 +16,20 @@ other_params = params["other"]
 # Set random seeds for reproducibility
 seed = training_params.get("seed", 42)
 eos_token_id = data_params.get("eos_token_id")
+bos_token_id = data_params.get("bos_token_id")
 
 # Create datasets
 train_dataset = TokenDataset(
     data_params["train_file"],
     seq_length=data_params["seq_length"],
     eos_token_id=eos_token_id,
+    bos_token_id=bos_token_id,
 )
 val_dataset = TokenDataset(
     data_params["val_file"],
     seq_length=data_params["seq_length"],
     eos_token_id=eos_token_id,
+    bos_token_id=bos_token_id,
 )
 
 # Create dataloaders
@@ -52,7 +55,8 @@ val_loader = DataLoader(
 # Initialize tokenizer for decoding
 tokenizer = Tokenizer("out/tokenize/tok.bin")
 
-print(f"Searching for a sample with EOS token (id={eos_token_id})...\n")
+print(f"Searching for a sample with EOS token (id={eos_token_id})...")
+print(f"BOS token ID: {bos_token_id}\n")
 
 max_batches = 100  # Limit search to avoid infinite loops
 found_eos = False
@@ -92,7 +96,9 @@ for batch_idx, batch in enumerate(train_loader):
 
             print(f"\n--- Sample {sample_idx} (contains EOS) ---")
             print(f"\nTokenizer vocab size: {tokenizer.vocab_size}")
+            print(f"Tokenizer BOS token ID: {tokenizer.bos_token_id}")
             print(f"Tokenizer EOS token ID: {tokenizer.eos_token_id}")
+            print(f"\nFirst token in input (should be BOS={bos_token_id}): {first_input[0].item()}")
             print(f"Input tokens (first 30):  {first_input[:30].tolist()}")
             print(f"Target tokens (first 30): {first_target[:30].tolist()}")
             print(f"Input tokens (last 30):   {first_input[-30:].tolist()}")
