@@ -1,4 +1,4 @@
-from tokenizer import Tokenizer
+import tokenizer as tok
 from dataloaders.py150_dataloader import TokenDataset
 import torch
 from torch.utils.data import DataLoader
@@ -52,7 +52,7 @@ val_loader = DataLoader(
 )
 
 # Initialize tokenizer for decoding
-tokenizer = Tokenizer("out/tokenize/tok.bin")
+tokenizer = tok.load("out/tokenize/tok.bin")
 
 print(f"Searching for a sample with EOS token (id={eos_token_id})...")
 print(f"BOS token ID: {bos_token_id}\n")

@@ -17,7 +17,6 @@ class TokenDataset(Dataset):
         bos_token_id: Optional[int] = None,
         split_ratio: float = 0.7,
         split_type: str = "train",
-        seed: Optional[int] = None,
         max_tokens: int = 0,
     ):
         """

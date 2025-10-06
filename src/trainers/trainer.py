@@ -9,6 +9,8 @@ from lightning.fabric.loggers.logger import Logger
 import torch
 from tqdm import tqdm
 
+from models.transformer import Transformer
+
 
 class Trainer:
     """Custom Trainer for LightningModule using Fabric.
@@ -35,6 +37,8 @@ class Trainer:
         log_every_n_steps: Optional[int] = None,
         save_dir: str = "./out/train/checkpoints",
         use_attention_mask: bool = False,
+        tokenizer_path: Optional[str] = None,
+        val_preview_prompts: Optional[list[str]] = None,
     ) -> None:
         """
         Initialize the Trainer.
@@ -51,6 +55,8 @@ class Trainer:
             log_every_n_steps: Log training metrics every N steps (None to disable)
             save_dir: Directory for saving checkpoints
             use_attention_mask: Whether batches include attention masks
+            tokenizer_path: Path to tokenizer binary file for generating preview completions
+            val_preview_prompts: List of prompts to generate completions for during validation
         """
         self.fabric = L.Fabric(
             accelerator=accelerator,
@@ -66,6 +72,8 @@ class Trainer:
         self.log_every_n_steps = log_every_n_steps
         self.save_dir = Path(save_dir)
         self.use_attention_mask = use_attention_mask
+        self.tokenizer_path = tokenizer_path
+        self.val_preview_prompts = val_preview_prompts or []
 
         # Training state
         self.current_epoch = 0
@@ -79,7 +87,7 @@ class Trainer:
 
     def fit(
         self,
-        model: L.LightningModule,
+        model: Transformer,
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader,
         hparams: Optional[dict] = None,
@@ -88,7 +96,7 @@ class Trainer:
         Main training loop.
 
         Args:
-            model: LightningModule to train
+            model: Transformer to train
             train_loader: Training data loader
             val_loader: Validation data loader
             hparams: Hyperparameters dictionary for logging
@@ -165,7 +173,7 @@ class Trainer:
 
     def train_loop(
         self,
-        model: L.LightningModule,
+        model: Transformer,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loader: torch.utils.data.DataLoader,
@@ -174,7 +182,7 @@ class Trainer:
         Training loop for one epoch.
 
         Args:
-            model: LightningModule to train
+            model: Transformer to train
             optimizer: Optimizer
             scheduler: Learning rate scheduler
             train_loader: Training data loader
@@ -257,14 +265,14 @@ class Trainer:
     @torch.no_grad()
     def val_loop(
         self,
-        model: L.LightningModule,
+        model: Transformer,
         val_loader: torch.utils.data.DataLoader,
     ) -> float:
         """
         Validation loop for one epoch.
 
         Args:
-            model: LightningModule to validate
+            model: Transformer to validate
             val_loader: Validation data loader
 
         Returns:
@@ -288,11 +296,21 @@ class Trainer:
             val_losses.append(loss.item())
             self._update_progress_bar(pbar, {"loss": loss.item()})
 
-        return sum(val_losses) / len(val_losses) if val_losses else 0.0
+        avg_val_loss = sum(val_losses) / len(val_losses) if val_losses else 0.0
+
+        # Generate preview completions if configured
+        if (
+            self.tokenizer_path
+            and self.val_preview_prompts
+            and self.fabric.logger is not None
+        ):
+            self._generate_validation_previews(model)
+
+        return avg_val_loss
 
     def _save_checkpoints(
         self,
-        model: L.LightningModule,
+        model: Transformer,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loss: float,
@@ -404,3 +422,49 @@ class Trainer:
         """
         if isinstance(pbar, tqdm):
             pbar.set_postfix(metrics)
+
+    def _generate_validation_previews(self, model: Transformer) -> None:
+        """
+        Generate text completion previews and log to TensorBoard.
+
+        Args:
+            model: Model to generate completions with
+        """
+        if not self.fabric.is_global_zero:
+            return
+
+        if self.tokenizer_path is None:
+            self.fabric.print(
+                "[WARN] Skipping validation previews (no tokenizer path provided)"
+            )
+            return
+
+        for i, prompt in enumerate(self.val_preview_prompts):
+            try:
+                # Generate completion
+                completion = model.generate(
+                    prompt=prompt,
+                    tokenizer_path=self.tokenizer_path,
+                    max_new_tokens=50,
+                    temperature=0.7,
+                    top_k=50,
+                )
+
+                # Format as markdown for better readability
+                formatted_text = f"**Prompt:** `{prompt}`\n\n**Completion:**\n```python\n{completion}\n```"
+
+                # Log to TensorBoard
+                self.fabric.logger.experiment.add_text(  # type: ignore[union-attr]
+                    f"validation_previews/prompt_{i}",
+                    formatted_text,
+                    global_step=self.global_step,
+                )
+
+                self.fabric.print(
+                    f"  Preview {i + 1}/{len(self.val_preview_prompts)}: {prompt!r}"
+                )
+
+            except Exception as e:
+                self.fabric.print(
+                    f"  Warning: Failed to generate preview for {prompt!r}: {e}"
+                )

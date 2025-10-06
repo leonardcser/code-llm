@@ -1,5 +1,25 @@
 """C++ BPE tokenizer with Python bindings."""
 
-from .tokenizer import Tokenizer, train, save, load
+from .tokenizer_cpp import (
+    SpecialToken,
+    SpecialTokensInput,
+    Tokenizer,
+    bpe_train as train,
+    decode,
+    encode,
+    load,
+    save,
+    visualize,
+)
 
-__all__ = ["Tokenizer", "train", "save", "load"]
+__all__ = [
+    "SpecialToken",
+    "SpecialTokensInput",
+    "Tokenizer",
+    "decode",
+    "encode",
+    "load",
+    "save",
+    "train",
+    "visualize",
+]

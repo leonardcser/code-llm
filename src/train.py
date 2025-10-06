@@ -190,6 +190,15 @@ def main():
     if compile_mode:
         hparams_dict["training/compile_mode"] = compile_mode
 
+    # Validation preview prompts for TensorBoard
+    val_preview_prompts = [
+        "def fibonacci(",
+        "class MyClass:",
+        "import ",
+        "for i in range(",
+        "def calculate_sum(",
+    ]
+
     # Initialize Trainer
     trainer = Trainer(
         accelerator=accelerator,
@@ -203,6 +212,8 @@ def main():
         log_every_n_steps=log_every_n_steps,
         save_dir=str(save_dir),
         use_attention_mask=use_attention_mask,
+        tokenizer_path=data_params["tok_file"],
+        val_preview_prompts=val_preview_prompts,
     )
 
     # Train the model

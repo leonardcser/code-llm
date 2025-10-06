@@ -66,7 +66,6 @@ class Py150DataModule(L.LightningDataModule):
                 self.bos_token_id,
                 self.split_ratio,
                 "train",
-                self.seed,
                 self.max_tokens,
             )
             self.val_dataset = TokenDataset(
@@ -76,7 +75,6 @@ class Py150DataModule(L.LightningDataModule):
                 self.bos_token_id,
                 self.split_ratio,
                 "val",
-                self.seed,
                 self.max_tokens,
             )
 

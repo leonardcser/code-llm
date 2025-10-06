@@ -1,10 +1,12 @@
 """PyTorch Lightning module for Qwen3 model training."""
 
+import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
-import lightning as L
 from transformers import Qwen3Config, Qwen3ForCausalLM
+
+from models.transformer import Transformer
 
 
 def create_qwen3_model(
@@ -66,7 +68,7 @@ def create_qwen3_model(
     return model
 
 
-class Qwen3(L.LightningModule):
+class Qwen3(Transformer):
     """Lightning module wrapper for Qwen3 causal language model."""
 
     def __init__(
@@ -155,9 +157,7 @@ class Qwen3(L.LightningModule):
         logits = outputs.logits
 
         # Calculate loss
-        loss = nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)), y.view(-1)
-        )
+        loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
         return loss
 
@@ -176,9 +176,7 @@ class Qwen3(L.LightningModule):
         logits = outputs.logits
 
         # Calculate loss
-        loss = nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)), y.view(-1)
-        )
+        loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
         return loss
 
@@ -192,15 +190,21 @@ class Qwen3(L.LightningModule):
         )
 
         # Setup learning rate scheduler with warmup
-        # Note: scheduler_t_max_steps will be set by train.py if None
+        # Note: scheduler_t_max_steps must be set by train.py before calling this
+        assert self.scheduler_t_max_steps is not None, (
+            "scheduler_t_max_steps must be set before configure_optimizers is called"
+        )
+        t_max_steps: int = self.scheduler_t_max_steps  # Type narrowing for Pyright
+
         if self.warmup_steps > 0:
             # Warmup scheduler: linearly increase LR from 0 to target LR
             warmup_scheduler = LambdaLR(
-                optimizer, lr_lambda=lambda step: min(1.0, (step + 1) / self.warmup_steps)
+                optimizer,
+                lr_lambda=lambda step: min(1.0, (step + 1) / self.warmup_steps),
             )
             # Cosine annealing after warmup
             cosine_scheduler = CosineAnnealingLR(
-                optimizer, T_max=self.scheduler_t_max_steps - self.warmup_steps
+                optimizer, T_max=t_max_steps - self.warmup_steps
             )
             # Combine warmup + cosine
             scheduler = SequentialLR(
@@ -209,7 +213,7 @@ class Qwen3(L.LightningModule):
                 milestones=[self.warmup_steps],
             )
         else:
-            scheduler = CosineAnnealingLR(optimizer, T_max=self.scheduler_t_max_steps)
+            scheduler = CosineAnnealingLR(optimizer, T_max=t_max_steps)
 
         return {
             "optimizer": optimizer,
@@ -225,3 +229,57 @@ class Qwen3(L.LightningModule):
         total = sum(p.numel() for p in self.model.parameters())
         trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         return total, trainable
+
+    @torch.no_grad()
+    def generate(
+        self,
+        prompt: str,
+        tokenizer_path: str,
+        max_new_tokens: int = 50,
+        temperature: float = 1.0,
+        top_k: int | None = None,
+        eos_token_id: int | None = None,
+    ) -> str:
+        """Generate text completion given a prompt.
+
+        Args:
+            prompt: Input prompt text
+            tokenizer_path: Path to tokenizer binary file
+            max_new_tokens: Maximum number of tokens to generate
+            temperature: Sampling temperature
+            top_k: If set, only sample from top k most likely tokens
+            eos_token_id: EOS token ID to stop generation
+
+        Returns:
+            Generated text (prompt + completion)
+        """
+        import torch
+        import tokenizer as tok
+
+        # Load tokenizer
+        tokenizer = tok.load(tokenizer_path)
+
+        # Encode prompt
+        input_ids = tokenizer.encode(prompt)
+        input_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
+
+        # Create attention mask
+        attention_mask = torch.ones_like(input_tensor)
+
+        # Generate tokens with KV caching (DynamicCache used internally)
+        outputs = self.model.generate(
+            input_tensor,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k if top_k else 50,
+            do_sample=True,
+            use_cache=True,
+            eos_token_id=eos_token_id if eos_token_id else tokenizer.eos_token_id,
+        )
+
+        # Decode generated tokens
+        generated_ids = outputs[0].tolist()
+        generated_text = tokenizer.decode(generated_ids)
+
+        return generated_text

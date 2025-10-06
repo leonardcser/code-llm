@@ -3,10 +3,11 @@
 import time
 import torch
 import lightning as L
-from transformers import StaticCache
 
 from models.qwen3 import Qwen3
-from tokenizer import Tokenizer
+import tokenizer as tok
+
+from models.transformer import Transformer
 
 # TODO: FUTURE ENHANCEMENT - HuggingFace Tokenizer Integration
 # ============================================================
@@ -46,35 +47,30 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
         state_dict = {k.replace("._orig_mod.", "."): v for k, v in state_dict.items()}
     lightning_module.load_state_dict(state_dict)
 
-    # Extract the actual Qwen3ForCausalLM model
-    model = lightning_module.model
-
-    # Setup model with Fabric for inference
-    model = fabric.setup(model)
-    model.eval()
+    # Setup Lightning module with Fabric for inference
+    lightning_module = fabric.setup(lightning_module)
+    lightning_module.eval()
 
     print(
         f"Model loaded (epoch {checkpoint['epoch']}, val_loss: {checkpoint['val_loss']:.4f})"
     )
-    return model, hparams
+    return lightning_module, hparams
 
 
 @torch.no_grad()
 def predict_next_token(
-    model: torch.nn.Module,
-    tokenizer: Tokenizer,
+    lightning_module: Transformer,
+    tokenizer: tok.Tokenizer,
     text: str,
-    fabric: L.Fabric,
     temperature: float = 1.0,
     top_k: int | None = None,
 ) -> tuple[int, str, dict[str, float]]:
     """Predict next token given input text.
 
     Args:
-        model: Trained transformer model
+        lightning_module: Lightning module (Qwen3)
         tokenizer: Tokenizer for encoding/decoding
         text: Input text
-        fabric: Fabric instance for device
         temperature: Sampling temperature (higher = more random)
         top_k: If set, only sample from top k most likely tokens
 
@@ -87,10 +83,10 @@ def predict_next_token(
     tokens = tokenizer.encode(text)
 
     # Convert to tensor
-    x = torch.tensor([tokens], dtype=torch.long, device=fabric.device)
+    x = torch.tensor([tokens], dtype=torch.long, device=lightning_module.device)
 
     # Get model predictions (returns ModelOutput with .logits)
-    outputs = model(x)
+    outputs = lightning_module(x)
     logits = outputs.logits
 
     # Get logits for the last position (next token)
@@ -108,10 +104,10 @@ def predict_next_token(
         top_k_probs, top_k_indices = torch.topk(probs, k=top_k)
         # Sample from top-k
         sample_idx = torch.multinomial(top_k_probs, num_samples=1)
-        token_id = top_k_indices[sample_idx].item()
+        token_id = int(top_k_indices[sample_idx].item())
     else:
         # Sample from full distribution
-        token_id = torch.multinomial(probs, num_samples=1).item()
+        token_id = int(torch.multinomial(probs, num_samples=1).item())
 
     # Decode token
     token_text = tokenizer.decode([token_id])
@@ -119,7 +115,7 @@ def predict_next_token(
     # Get top 10 probabilities for display
     top_10_probs, top_10_indices = torch.topk(probs, k=10)
     top_10_dict = {
-        tokenizer.decode([idx.item()]): prob.item()
+        tokenizer.decode([int(idx.item())]): prob.item()
         for idx, prob in zip(top_10_indices, top_10_probs)
     }
 
@@ -127,73 +123,36 @@ def predict_next_token(
 
 
 def generate_text(
-    model: torch.nn.Module,
-    tokenizer: Tokenizer,
+    lightning_module: Transformer,
+    tokenizer_path: str,
     prompt: str,
-    fabric: L.Fabric,
     max_tokens: int = 50,
     temperature: float = 1.0,
     top_k: int | None = None,
-    use_cache: bool = True,
-    use_compile: bool = False,
+    eos_token_id: int | None = None,
 ) -> str:
-    """Generate text using model.generate() with KV caching for optimal performance.
-
-    This implementation uses HuggingFace's built-in generation with StaticCache
-    for much faster inference compared to manual token-by-token generation.
+    """Generate text using the Lightning module's generate method.
 
     Args:
-        model: Trained transformer model (Qwen3ForCausalLM)
-        tokenizer: Tokenizer for encoding/decoding
+        lightning_module: Lightning module (Qwen3) with generate method
+        tokenizer_path: Path to tokenizer binary file
         prompt: Initial prompt text
-        fabric: Fabric instance for device
         max_tokens: Maximum number of tokens to generate
         temperature: Sampling temperature
         top_k: If set, only sample from top k most likely tokens
-        use_cache: Whether to use KV caching (default: True)
-        use_compile: Whether to use torch.compile (default: False, set True in main)
+        eos_token_id: EOS token ID to stop generation
 
     Returns:
         Generated text (prompt + generated tokens)
     """
-    # Encode prompt with custom tokenizer
-    input_ids = tokenizer.encode(prompt)
-    input_tensor = torch.tensor([input_ids], dtype=torch.long, device=fabric.device)
-
-    # Initialize StaticCache for best performance with torch.compile
-    cache = None
-    if use_cache:
-        cache = StaticCache(
-            config=model.config,
-            max_batch_size=1,
-            max_cache_len=model.config.max_position_embeddings,
-            device=fabric.device,
-            dtype=model.dtype,
-        )
-
-    # Create attention mask (all ones since we have a single prompt, no padding)
-    attention_mask = torch.ones_like(input_tensor)
-
-    # Generate tokens using model.generate() with KV caching
-    # This is 10-100x faster than manual loop due to cached attention
-    with torch.no_grad():
-        outputs = model.generate(
-            input_tensor,
-            attention_mask=attention_mask,
-            max_new_tokens=max_tokens,
-            temperature=temperature,
-            top_k=top_k if top_k else 50,  # Default to top_k=50 if None
-            do_sample=True,
-            past_key_values=cache,
-            use_cache=use_cache,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-
-    # Decode generated tokens with custom tokenizer
-    generated_ids = outputs[0].tolist()
-    generated_text = tokenizer.decode(generated_ids)
-
-    return generated_text
+    return lightning_module.generate(
+        prompt=prompt,
+        tokenizer_path=tokenizer_path,
+        max_new_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        eos_token_id=eos_token_id,
+    )
 
 
 def main():
@@ -207,17 +166,17 @@ def main():
 
     # Load tokenizer
     print(f"\nLoading tokenizer from {tokenizer_path}...")
-    tokenizer = Tokenizer(tokenizer_path)
+    tokenizer = tok.load(tokenizer_path)
     print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size})")
 
     # Load model
-    model, _hparams = load_model(checkpoint_path, fabric)
+    lightning_module, _hparams = load_model(checkpoint_path, fabric)
 
     # Enable torch.compile for 2-4x additional speedup during generation
     # Note: First run will be slower due to compilation, subsequent runs are much faster
     # print("\nEnabling torch.compile for optimized inference...")
     # try:
-    #     model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+    #     lightning_module.model.forward = torch.compile(lightning_module.model.forward, mode="reduce-overhead", fullgraph=True)
     #     print("✓ torch.compile enabled (first generation will compile, subsequent runs will be fast)")
     # except Exception as e:
     #     print(f"⚠ torch.compile failed (continuing without it): {e}")
@@ -231,7 +190,7 @@ def main():
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = predict_next_token(
-        model, tokenizer, test_text, fabric, temperature=0.5
+        lightning_module, tokenizer, test_text, temperature=0.5
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -241,7 +200,7 @@ def main():
 
     # Text generation with KV cache optimization
     print("\n" + "=" * 80)
-    print("TEXT GENERATION (Optimized with StaticCache)")
+    print("TEXT GENERATION (Optimized with KV Cache)")
     print("=" * 80)
 
     prompt = "def sum_list(nums: List[int]"
@@ -249,10 +208,15 @@ def main():
     print("Generating 100 tokens with temperature=0.5, top_k=50")
 
     # Timed generation with KV cache
-    print("\n[Generating with StaticCache...]")
+    print("\n[Generating with KV cache...]")
     start_time = time.time()
     generated = generate_text(
-        model, tokenizer, prompt, fabric, max_tokens=100, temperature=0.5, top_k=50
+        lightning_module,
+        tokenizer_path,
+        prompt,
+        max_tokens=100,
+        temperature=0.5,
+        top_k=50,
     )
     generation_time = time.time() - start_time
 
