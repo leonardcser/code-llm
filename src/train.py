@@ -1,7 +1,9 @@
-import torch
-import yaml
+import math
 import time
 from pathlib import Path
+
+import torch
+import yaml
 import lightning as L
 from lightning.fabric.loggers.tensorboard import TensorBoardLogger
 
@@ -131,10 +133,16 @@ def main():
     scheduler_t_max_steps = training_params.get("scheduler_t_max_steps")
     if scheduler_t_max_steps is None:
         batches_per_epoch = (
-            max_batches_per_epoch if max_batches_per_epoch is not None else len(train_loader)
+            max_batches_per_epoch
+            if max_batches_per_epoch is not None
+            else len(train_loader)
         )
-        scheduler_t_max_steps = epochs * batches_per_epoch
-        print(f"\nAuto-calculated scheduler_t_max_steps: {scheduler_t_max_steps} ({epochs} epochs × {batches_per_epoch} batches)")
+        optimizer_steps_per_epoch = math.ceil(batches_per_epoch / grad_accum_steps)
+        scheduler_t_max_steps = epochs * optimizer_steps_per_epoch
+        print(
+            f"\nAuto-calculated scheduler_t_max_steps: {scheduler_t_max_steps} "
+            f"({epochs} epochs × {optimizer_steps_per_epoch} optimizer steps per epoch)"
+        )
 
     # Update model with calculated scheduler_t_max_steps
     model.scheduler_t_max_steps = scheduler_t_max_steps

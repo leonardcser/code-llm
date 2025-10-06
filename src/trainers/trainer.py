@@ -211,16 +211,20 @@ class Trainer:
                 loss_output = model.training_step(batch, batch_idx)
                 # Ensure loss is a tensor
                 if isinstance(loss_output, dict):
-                    loss = loss_output["loss"]
+                    loss_tensor = loss_output["loss"]
                 else:
-                    loss = loss_output
-                assert isinstance(loss, torch.Tensor)
+                    loss_tensor = loss_output
+                assert isinstance(loss_tensor, torch.Tensor)
+
+                loss_value = loss_tensor.detach().item()
 
                 if self.gradient_accumulation_steps > 1:
-                    loss = loss / self.gradient_accumulation_steps
+                    loss_for_backward = loss_tensor / self.gradient_accumulation_steps
+                else:
+                    loss_for_backward = loss_tensor
 
                 # Backward pass
-                self.fabric.backward(loss)
+                self.fabric.backward(loss_for_backward)
 
             # Step optimizer only when accumulation phase is complete
             if not is_accumulating:
@@ -236,8 +240,8 @@ class Trainer:
                 # Step the scheduler after optimizer step
                 scheduler.step()
 
-            train_losses.append(loss.item())
-            self._update_progress_bar(pbar, {"loss": loss.item()})
+            train_losses.append(loss_value)
+            self._update_progress_bar(pbar, {"loss": loss_value})
 
             # Log per-step metrics if enabled
             if (
@@ -245,7 +249,7 @@ class Trainer:
                 and (self.global_step + 1) % self.log_every_n_steps == 0
             ):
                 self.fabric.log_dict(
-                    {"loss/train_step": loss.item()},
+                    {"loss/train_step": loss_value},
                     step=self.global_step,
                 )
 
