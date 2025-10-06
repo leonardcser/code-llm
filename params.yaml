@@ -17,6 +17,7 @@ data:
   num_workers: 6
   bos_token_id: 20256 # <|startoftext|> token for document boundaries
   eos_token_id: 20257 # <|endoftext|> token for document boundaries
+  pad_token_id: 20258 # <|pad|> token for padding batches
 
 model:
   # Qwen3 architecture parameters

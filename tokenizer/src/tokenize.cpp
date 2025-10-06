@@ -6,7 +6,6 @@
 #include <functional>
 #include <iostream>
 #include <sstream>
-#include <utility>
 #include <yaml-cpp/yaml.h>
 
 int main() {
@@ -14,13 +13,16 @@ int main() {
 
     // Load configuration from params.yaml
     const unsigned int seed = config["data"]["seed"].as<unsigned int>();
-    const double split_ratio = config["data"]["split_ratio"].as<double>();
-    const std::string dataset_path = config["data"]["dataset_path"].as<std::string>();
-    const std::string glob_pattern = config["data"]["glob_pattern"].as<std::string>();
+    const std::string dataset_path =
+        config["data"]["dataset_path"].as<std::string>();
+    const std::string glob_pattern =
+        config["data"]["glob_pattern"].as<std::string>();
     const std::string tok_file = config["data"]["tok_file"].as<std::string>();
-    const std::string dataset_file = config["data"]["dataset_file"].as<std::string>();
+    const std::string dataset_file =
+        config["data"]["dataset_file"].as<std::string>();
     const size_t vocab_size = config["data"]["vocab_size"].as<size_t>();
-    const size_t max_unique_words = config["data"]["max_unique_words"].as<size_t>();
+    const size_t max_unique_words =
+        config["data"]["max_unique_words"].as<size_t>();
     const std::string bos_token = config["data"]["bos_token"].as<std::string>();
     const std::string eos_token = config["data"]["eos_token"].as<std::string>();
     const std::string pad_token = config["data"]["pad_token"].as<std::string>();

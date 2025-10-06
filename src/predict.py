@@ -129,7 +129,6 @@ def generate_text(
     max_tokens: int = 50,
     temperature: float = 1.0,
     top_k: int | None = None,
-    eos_token_id: int | None = None,
 ) -> str:
     """Generate text using the Lightning module's generate method.
 
@@ -140,7 +139,6 @@ def generate_text(
         max_tokens: Maximum number of tokens to generate
         temperature: Sampling temperature
         top_k: If set, only sample from top k most likely tokens
-        eos_token_id: EOS token ID to stop generation
 
     Returns:
         Generated text (prompt + generated tokens)
@@ -151,7 +149,6 @@ def generate_text(
         max_new_tokens=max_tokens,
         temperature=temperature,
         top_k=top_k,
-        eos_token_id=eos_token_id,
     )
 
 

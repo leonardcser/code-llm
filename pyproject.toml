@@ -15,4 +15,5 @@ dependencies = [
     "tqdm>=4.67.1",
     "tokenizer @ file:///${PROJECT_ROOT}/tokenizer",
     "lightning>=2.5.5",
+    "pytest>=8.4.2",
 ]

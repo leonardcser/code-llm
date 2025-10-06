@@ -63,6 +63,7 @@ def main():
     print("\nLoading data...")
     eos_token_id = data_params["eos_token_id"]
     bos_token_id = data_params["bos_token_id"]
+    pad_token_id = data_params["pad_token_id"]
     use_attention_mask = eos_token_id is not None or bos_token_id is not None
 
     if use_attention_mask:
@@ -70,6 +71,8 @@ def main():
             print(f"Using attention masking with EOS token ID: {eos_token_id}")
         if bos_token_id is not None:
             print(f"Using attention masking with BOS token ID: {bos_token_id}")
+    if pad_token_id is not None:
+        print(f"Using PAD token ID: {pad_token_id}")
 
     data_module = Py150DataModule(
         dataset_file=data_params["dataset_file"],
@@ -82,6 +85,7 @@ def main():
         eos_token_id=eos_token_id,
         bos_token_id=bos_token_id,
         max_tokens=data_params["max_tokens"],
+        pad_token_id=pad_token_id,
     )
     data_module.setup("fit")
 
@@ -193,10 +197,7 @@ def main():
     # Validation preview prompts for TensorBoard
     val_preview_prompts = [
         "def fibonacci(",
-        "class MyClass:",
-        "import ",
         "for i in range(",
-        "def calculate_sum(",
     ]
 
     # Initialize Trainer

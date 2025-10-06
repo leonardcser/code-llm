@@ -205,6 +205,13 @@ was included but limited to 750. However the evaluation batch was not shuffled
 but also limited to 750. This meant that the model was training on more that 70%
 training data, and the validation data was not representative.
 
+== PAD Special Token
+
+I've encountered some issues with incomplete batches. Either I drop the last
+batch or I pad it. I've decided to pad it with the PAD special token. Currently,
+the model does not see it very often when training so it might not work too
+well.
+
 == Run \#1
 
 In progress

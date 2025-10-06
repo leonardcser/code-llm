@@ -51,16 +51,14 @@ stages:
       size: 2969
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 54d4a2dc5b1ad8fa2dc6f97292d7ddf2
-      size: 3987
+      md5: 5316998dd659988726bdc1d9bb680b93
+      size: 3925
     params:
       params.yaml:
         data.bos_token: <|startoftext|>
-        data.bos_token_id: 20256
         data.dataset_file: out/tokenize/dataset.bin
         data.dataset_path: data/py150/data
         data.eos_token: <|endoftext|>
-        data.eos_token_id: 20257
         data.glob_pattern: '*.py'
         data.max_unique_words: 0
         data.pad_token: <|pad|>

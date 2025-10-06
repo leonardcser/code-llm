@@ -238,7 +238,6 @@ class Qwen3(Transformer):
         max_new_tokens: int = 50,
         temperature: float = 1.0,
         top_k: int | None = None,
-        eos_token_id: int | None = None,
     ) -> str:
         """Generate text completion given a prompt.
 
@@ -248,7 +247,6 @@ class Qwen3(Transformer):
             max_new_tokens: Maximum number of tokens to generate
             temperature: Sampling temperature
             top_k: If set, only sample from top k most likely tokens
-            eos_token_id: EOS token ID to stop generation
 
         Returns:
             Generated text (prompt + completion)
@@ -275,7 +273,8 @@ class Qwen3(Transformer):
             top_k=top_k if top_k else 50,
             do_sample=True,
             use_cache=True,
-            eos_token_id=eos_token_id if eos_token_id else tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id,
         )
 
         # Decode generated tokens

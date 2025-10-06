@@ -446,7 +446,7 @@ class Trainer:
                     prompt=prompt,
                     tokenizer_path=self.tokenizer_path,
                     max_new_tokens=50,
-                    temperature=0.7,
+                    temperature=0.3,
                     top_k=50,
                 )
 
@@ -458,10 +458,6 @@ class Trainer:
                     f"validation_previews/prompt_{i}",
                     formatted_text,
                     global_step=self.global_step,
-                )
-
-                self.fabric.print(
-                    f"  Preview {i + 1}/{len(self.val_preview_prompts)}: {prompt!r}"
                 )
 
             except Exception as e:

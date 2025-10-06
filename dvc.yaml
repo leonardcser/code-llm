@@ -27,8 +27,6 @@ stages:
       - data.bos_token
       - data.eos_token
       - data.pad_token
-      - data.bos_token_id
-      - data.eos_token_id
     outs:
       - out/tokenize
 
@@ -45,8 +43,9 @@ stages:
       - data.seq_length
       - data.max_tokens
       - data.num_workers
-      - data.bos_token
-      - data.eos_token
+      - data.bos_token_id
+      - data.eos_token_id
+      - data.pad_token_id
       - model
       - training
     outs:
