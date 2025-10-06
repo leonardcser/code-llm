@@ -78,7 +78,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(absl)
 
 # Define entrypoints (executables)
-set(ENTRYPOINTS tokenize visualize decode)
+set(ENTRYPOINTS tokenize visualize decode tokenize-cli)
 
 # Find all source files
 file(GLOB_RECURSE SOURCES "src/*.cpp")
