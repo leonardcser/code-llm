@@ -9,7 +9,13 @@ from typing import Optional
 class TokenDataset(Dataset):
     """Dataset for loading tokenized data from binary files with proper document boundary handling."""
 
-    def __init__(self, token_file: str, seq_length: int = 512, eos_token_id: Optional[int] = None, bos_token_id: Optional[int] = None):
+    def __init__(
+        self,
+        token_file: str,
+        seq_length: int = 512,
+        eos_token_id: Optional[int] = None,
+        bos_token_id: Optional[int] = None,
+    ):
         """
         Args:
             token_file: Path to binary token file (uint32)
@@ -25,8 +31,13 @@ class TokenDataset(Dataset):
         tokens = np.fromfile(token_file, dtype=np.uint32)
         self.tokens = torch.from_numpy(tokens).long()
 
-        # Calculate number of sequences (need seq_length + 1 tokens per sequence)
-        self.n_sequences = (len(self.tokens) - 1) // seq_length
+        # Calculate number of sequences
+        if self.bos_token_id is not None:
+            # With BOS each sequence consumes exactly seq_length tokens
+            self.n_sequences = len(self.tokens) // self.seq_length
+        else:
+            # Original behavior without BOS requires seq_length + 1 tokens per sequence
+            self.n_sequences = (len(self.tokens) - 1) // self.seq_length
 
         print(f"Loaded {len(self.tokens)} tokens from {token_file}")
         print(f"Created {self.n_sequences} sequences of length {seq_length}")
@@ -60,7 +71,9 @@ class TokenDataset(Dataset):
 
             # Prepend BOS to input
             bos_tensor = torch.tensor([self.bos_token_id], dtype=torch.long)
-            x = torch.cat([bos_tensor, sequence[:-1]])  # [BOS] + first (seq_length-1) tokens
+            x = torch.cat(
+                [bos_tensor, sequence[:-1]]
+            )  # [BOS] + first (seq_length-1) tokens
             y = sequence  # All seq_length tokens
         else:
             # Original behavior without BOS
@@ -109,20 +122,24 @@ class TokenDataset(Dataset):
 
         # Find EOS token positions for document boundaries
         if self.eos_token_id is not None:
-            eos_positions = (tokens == self.eos_token_id).nonzero(as_tuple=False).squeeze(-1)
-            if len(eos_positions) > 0:
-                eos_list = eos_positions.tolist() if eos_positions.dim() > 0 else [eos_positions.item()]
+            # Create binary tensor: 1 where EOS, 0 elsewhere
+            is_eos = (tokens == self.eos_token_id).long()
 
-                # For each EOS token, block attention from later tokens to this and earlier tokens
-                # Exception: position 0 (BOS) remains visible to all (attention sink)
-                for eos_pos in eos_list:
-                    if eos_pos + 1 < seq_len:
-                        # Block attention to positions up to and including EOS
-                        mask[eos_pos + 1:, :eos_pos + 1] = False
+            # Cumulative sum gives us document segment IDs
+            # After each EOS, the cumsum increments, marking a new document
+            doc_ids = torch.cumsum(is_eos, dim=0)
 
-                        # BUT: if BOS is present (position 0), keep it visible (attention sink)
-                        if self.bos_token_id is not None:
-                            mask[eos_pos + 1:, 0] = True
+            # Create document boundary mask: (seq_len, seq_len)
+            # doc_ids[i] != doc_ids[j] means tokens i and j are in different documents
+            # We want to block attention across document boundaries
+            doc_mask = doc_ids.unsqueeze(1) == doc_ids.unsqueeze(0)
+
+            # Combine causal mask with document boundary mask
+            mask = mask & doc_mask
+
+            # Restore BOS attention sink if present (position 0 visible to all)
+            if self.bos_token_id is not None:
+                mask[:, 0] = True
 
         # Reshape to 3D: (1, seq_len, seq_len)
         # When batched, this becomes (batch_size, 1, seq_len, seq_len)
@@ -143,29 +160,31 @@ class TokenDataset(Dataset):
         seq_len = len(tokens)
         position_ids = torch.arange(seq_len, dtype=torch.long)
 
-        # If BOS is present at position 0, handle EOS resets differently
-        if self.bos_token_id is not None and self.eos_token_id is not None:
-            # Find EOS positions
-            eos_positions = (tokens == self.eos_token_id).nonzero(as_tuple=False).squeeze(-1)
-            if len(eos_positions) > 0:
-                eos_list = eos_positions.tolist() if eos_positions.dim() > 0 else [eos_positions.item()]
+        # Vectorized position reset using cumulative operations
+        if self.eos_token_id is not None:
+            # Find indices where EOS tokens appear
+            eos_indices = (tokens == self.eos_token_id).nonzero(as_tuple=True)[0]
 
-                # After each EOS, reset positions to start from 1 (not 0, since 0 is BOS)
-                for eos_pos in eos_list:
-                    if eos_pos + 1 < seq_len:
-                        # Calculate offset: everything after EOS should restart from 1
-                        # Current value at eos_pos+1 is eos_pos+1, we want it to be 1
-                        # So subtract (eos_pos)
-                        position_ids[eos_pos + 1:] -= eos_pos
+            if len(eos_indices) > 0:
+                # Create offset tensor: stores the value to subtract at each position
+                # Strategy: For each position, find the cumulative offset from all EOS tokens before it
 
-        elif self.eos_token_id is not None:
-            # Original behavior: reset to 0 after EOS (no BOS)
-            eos_positions = (tokens == self.eos_token_id).nonzero(as_tuple=False).squeeze(-1)
-            if len(eos_positions) > 0:
-                eos_list = eos_positions.tolist() if eos_positions.dim() > 0 else [eos_positions.item()]
+                # Create a matrix: (seq_len, num_eos) where entry [i,j] indicates if position i is after EOS j
+                is_after_eos = position_ids.unsqueeze(1) > eos_indices.unsqueeze(
+                    0
+                )  # (seq_len, num_eos)
 
-                for eos_pos in eos_list:
-                    if eos_pos + 1 < seq_len:
-                        position_ids[eos_pos + 1:] -= (eos_pos + 1)
+                # For BOS pattern: offset = eos_pos for each EOS before this position
+                # For non-BOS pattern: offset = eos_pos + 1
+                if self.bos_token_id is not None:
+                    offsets_per_eos = eos_indices.unsqueeze(0)  # (1, num_eos)
+                else:
+                    offsets_per_eos = (eos_indices + 1).unsqueeze(0)  # (1, num_eos)
+
+                # Sum offsets for all EOS tokens that come before each position
+                # Only count EOS tokens that are actually before this position
+                total_offset = (is_after_eos * offsets_per_eos).sum(dim=1)  # (seq_len,)
+
+                position_ids = position_ids - total_offset
 
         return position_ids

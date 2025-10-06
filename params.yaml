@@ -42,12 +42,12 @@ training:
   grad_clip: 1.0
   gradient_accumulation_steps: 4
   max_batches_per_epoch: 750 # Set to integer to limit batches per epoch, null for no limit
-  use_amp: false # Use automatic mixed precision training
+  use_amp: true # Use automatic mixed precision training
   compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   devices: 1 # Number of devices to use (GPUs/TPUs/etc.)
   strategy: "auto" # Distributed strategy: "auto", "ddp", "fsdp", "deepspeed", etc.
   seed: 42
-  warmup_steps: 5 # Number of warmup steps for learning rate
+  warmup_epochs: 5 # Number of warmup epochs for learning rate
   scheduler_t_max: 50 # T_max for CosineAnnealingLR (epochs)
   log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
 

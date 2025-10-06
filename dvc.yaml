@@ -43,6 +43,7 @@ stages:
       - src/models/qwen3.py
       - src/dataloaders/py150.py
       - src/dataloaders/py150_dataloader.py
+      - src/trainers/trainer.py
     params:
       - data
       - model
