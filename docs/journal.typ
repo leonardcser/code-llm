@@ -75,7 +75,7 @@ tiny completions model, and discover where are the limits.
 This journal serves as documentation for the design decisions, implementation
 choices, parameter changes, etc.
 
-*Disclamer:* This is an education project and there will be mistakes.
+*Disclaimer:* This is an education project and there will be mistakes.
 Contributions are welcome!
 
 = Week 22.09.25
@@ -91,12 +91,11 @@ was to learn the BPE algorithm and control it.
 
 I know I needed a high-performance language for this take, so I started out
 implementing a version in C. However, I quickly realized that the algorithm
-depends on quite a lot of datastructures (vectors, hashmaps, heaps) in addition
-to the regex parsing. Therefore, I switched to C-style C++.
+depends on quite a lot of data structures (vectors, hash maps, heaps) in
+addition to the regex parsing. Therefore, I switched to C-style C++.
 
 For the training data, I trained the tokenizer exclusively on Python code using
-the `py150` datasetrained the tokenizer exclusively on Python code using the
-`py150` dataset.
+the `py150` dataset.
 
 Since python code is _usually_ written using ASCII characters, I removed UTF-8
 characters before tokenizing, effectively excluding them from the vocabulary.
@@ -105,7 +104,8 @@ the essential.
 
 == Creating the Regex
 
-I took inspiration from the cl100k_base regex @openai_tiktoken_cl100k_base_2025:
+I took inspiration from the `cl100k_base` regex
+@openai_tiktoken_cl100k_base_2025:
 
 ```re
 '(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s
@@ -117,8 +117,8 @@ and ended up on the following regex:
  ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s
 ```
 
-- I removed UFT-8 handling and compound expression groupping (ex: `'ve`)
-- #re(" ?[A-Za-z_(][A-Za-z_.]*") groups together charaters with `_`, `(`, and
+- I removed UTF-8 handling and compound expression grouping (ex: `'ve`)
+- #re(" ?[A-Za-z_(][A-Za-z_.]*") groups together characters with `_`, `(`, and
   `.` symbols
 - #re("%(?:\.\d+)?[sdifFeEgGxXoc%]") groups together printf formats like `%s`
   and the rest says very similar
@@ -134,8 +134,8 @@ training loop.
 For the model, instead of reimplementing from scratch I used the Qwen3 (without
 MoE) model from the `transformers` library @transformers.
 
-I choose AdamW for the optimizer with a warmup and cosine schedule. Below is a
-non exaustive list of the parameters chosen:
+I choose AdamW for the optimizer with a warm-up and cosine schedule. Below is a
+non exhaustive list of the parameters chosen:
 
 ```yaml
 data:
@@ -169,9 +169,9 @@ TODO
 
 = Week 06.10.25
 
-== BOS Special Token
+== BOD Special Token
 
-I added this "beginning of sequence" speical token to allow it to act as a
+I added this "beginning of sequence" special token to allow it to act as a
 "attention skin" @xiao2024efficientstreaminglanguagemodels.
 
 The `BOS` token is added at the start of every input sequence to the model. Is
@@ -190,7 +190,7 @@ step.
 
 == Tokenizer Regex
 
-I realized that it cannot hurt to join compound expression groupping. So I added
+I realized that it cannot hurt to join compound expression grouping. So I added
 the following capture group:
 
 ```re
@@ -200,7 +200,7 @@ the following capture group:
 == Data Distribution
 
 I also removed `max_batches_per_epoch`, replacing it with `max_tokens` such that
-we have a fair distribuite. Before the training batch was shuffled and all data
+we have a fair distribute. Before the training batch was shuffled and all data
 was included but limited to 750. However the evaluation batch was not shuffled
 but also limited to 750. This meant that the model was training on more that 70%
 training data, and the validation data was not representative.
