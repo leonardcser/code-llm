@@ -131,6 +131,7 @@ def main():
     grad_clip = training_params["grad_clip"]
     grad_accum_steps = training_params.get("gradient_accumulation_steps", 1)
     log_every_n_steps = training_params.get("log_every_n_steps")
+    val_every_n_steps = training_params.get("val_every_n_steps")
 
     # Convert warmup_steps from batch steps to optimizer steps
     warmup_steps_batch = training_params["warmup_steps"]
@@ -211,6 +212,7 @@ def main():
         grad_clip=grad_clip,
         gradient_accumulation_steps=grad_accum_steps,
         log_every_n_steps=log_every_n_steps,
+        val_every_n_steps=val_every_n_steps,
         save_dir=str(save_dir),
         use_attention_mask=use_attention_mask,
         tokenizer_path=data_params["tok_file"],

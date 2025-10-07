@@ -35,6 +35,7 @@ class Trainer:
         grad_clip: float = 1.0,
         gradient_accumulation_steps: int = 1,
         log_every_n_steps: Optional[int] = None,
+        val_every_n_steps: Optional[int] = None,
         save_dir: str = "./out/train/checkpoints",
         use_attention_mask: bool = False,
         tokenizer_path: Optional[str] = None,
@@ -53,6 +54,7 @@ class Trainer:
             grad_clip: Gradient clipping max norm (0 to disable)
             gradient_accumulation_steps: Number of batches to accumulate before optimizer step
             log_every_n_steps: Log training metrics every N steps (None to disable)
+            val_every_n_steps: Compute validation loss every N steps (None to validate only at epoch end)
             save_dir: Directory for saving checkpoints
             use_attention_mask: Whether batches include attention masks
             tokenizer_path: Path to tokenizer binary file for generating preview completions
@@ -70,6 +72,7 @@ class Trainer:
         self.grad_clip = grad_clip
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.log_every_n_steps = log_every_n_steps
+        self.val_every_n_steps = val_every_n_steps
         self.save_dir = Path(save_dir)
         self.use_attention_mask = use_attention_mask
         self.tokenizer_path = tokenizer_path
@@ -136,12 +139,22 @@ class Trainer:
             self.fabric.print(f"\nEpoch {epoch + 1}/{self.max_epochs}")
 
             # Training phase
-            train_loss = self.train_loop(model, optimizer, scheduler, train_loader)
+            train_loss, last_val_loss = self.train_loop(
+                model, optimizer, scheduler, train_loader, val_loader
+            )
             self.fabric.print(f"Train loss: {train_loss:.4f}")
 
-            # Validation phase
-            val_loss = self.val_loop(model, val_loader)
-            self.fabric.print(f"Val loss: {val_loss:.4f}")
+            # Validation phase - only run if not already done during training
+            if last_val_loss is not None:
+                # Validation was run during training (every n steps)
+                val_loss = last_val_loss
+                self.fabric.print(
+                    f"Val loss: {val_loss:.4f} (from last step validation)"
+                )
+            else:
+                # Run validation at end of epoch
+                val_loss = self.val_loop(model, val_loader)
+                self.fabric.print(f"Val loss: {val_loss:.4f}")
 
             # Get current learning rate for logging
             current_lr = optimizer.param_groups[0]["lr"]
@@ -158,14 +171,16 @@ class Trainer:
 
             self.fabric.print(f"Learning rate: {current_lr:.6f}")
 
-            # Save checkpoints
-            self._save_checkpoints(
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                train_loss=train_loss,
-                val_loss=val_loss,
-            )
+            # Save checkpoints - only if validation wasn't already run during training
+            # (if last_val_loss is not None, checkpoints were already saved in train_loop)
+            if last_val_loss is None:
+                self._save_checkpoints(
+                    model=model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    train_loss=train_loss,
+                    val_loss=val_loss,
+                )
 
         # Save final metrics
         self._save_final_metrics(train_loss, val_loss)
@@ -177,7 +192,8 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loader: torch.utils.data.DataLoader,
-    ) -> float:
+        val_loader: Optional[torch.utils.data.DataLoader] = None,
+    ) -> tuple[float, Optional[float]]:
         """
         Training loop for one epoch.
 
@@ -186,12 +202,14 @@ class Trainer:
             optimizer: Optimizer
             scheduler: Learning rate scheduler
             train_loader: Training data loader
+            val_loader: Validation data loader (required if val_every_n_steps is set)
 
         Returns:
-            Average training loss for the epoch
+            Tuple of (average training loss for the epoch, last validation loss or None)
         """
         model.train()
         train_losses = []
+        last_val_loss = None
 
         total = len(train_loader)
         pbar = self._create_progress_bar(train_loader, total, "Training")
@@ -250,6 +268,47 @@ class Trainer:
 
             self.global_step += 1
 
+            # Run validation every n steps if configured
+            if (
+                self.val_every_n_steps is not None
+                and self.global_step % self.val_every_n_steps == 0
+                and val_loader is not None
+            ):
+                self.fabric.print(
+                    f"\nRunning validation at step {self.global_step}..."
+                )
+                last_val_loss = self.val_loop(model, val_loader)
+                self.fabric.print(f"Val loss: {last_val_loss:.4f}")
+
+                # Get current training loss average
+                current_train_loss = (
+                    sum(train_losses) / len(train_losses) if train_losses else 0.0
+                )
+
+                # Get current learning rate for logging
+                current_lr = optimizer.param_groups[0]["lr"]
+
+                # Log step-level validation metrics
+                self.fabric.log_dict(
+                    {
+                        "loss/val_step": last_val_loss,
+                        "lr": current_lr,
+                    },
+                    step=self.global_step,
+                )
+
+                # Save checkpoints
+                self._save_checkpoints(
+                    model=model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    train_loss=current_train_loss,
+                    val_loss=last_val_loss,
+                )
+
+                # Set model back to training mode
+                model.train()
+
         # Handle remaining gradients at end of epoch
         if len(train_losses) > 0 and (
             len(train_losses) % self.gradient_accumulation_steps != 0
@@ -260,7 +319,8 @@ class Trainer:
             optimizer.zero_grad()
             scheduler.step()
 
-        return sum(train_losses) / len(train_losses) if train_losses else 0.0
+        avg_train_loss = sum(train_losses) / len(train_losses) if train_losses else 0.0
+        return avg_train_loss, last_val_loss
 
     @torch.no_grad()
     def val_loop(

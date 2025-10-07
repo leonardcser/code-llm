@@ -1,3 +1,5 @@
+#import "@preview/lilaq:0.5.0" as lq
+
 #set page(margin: 1.7in)
 
 #set par(
@@ -23,6 +25,7 @@
   }
 ]
 #show heading: set block(above: 1.8em, below: 1em)
+#show figure: set block(above: 2em, below: 2em)
 #show heading.where(level: 1): it => {
   pagebreak()
   block(above: 2.4em, below: 1em, text(
@@ -212,12 +215,54 @@ batch or I pad it. I've decided to pad it with the PAD special token. Currently,
 the model does not see it very often when training so it might not work too
 well.
 
+#pagebreak()
+
 == Run \#1
 
-In progress
+`commit 2361ffbae2b892f689e9af7984e596809f5462fe`
+
+During this first run the model overfitted as the loss plot shows on @run1. This
+is due to the $10'000'000$ token limit I set, which is too low.
+
+#let train_loss = lq.load-txt(
+  read("runs/qwen3_1759779065/csv/loss_train.csv"),
+  skip-rows: 1,
+)
+#let val_loss = lq.load-txt(
+  read("runs/qwen3_1759779065/csv/loss_val.csv"),
+  skip-rows: 1,
+)
+
+#figure(
+  lq.diagram(
+    lq.plot(..train_loss, label: [train]),
+    lq.plot(..val_loss, label: [val]),
+    legend: (position: top + right),
+    xlabel: [steps],
+    ylabel: [loss],
+    width: 80%,
+    height: 4cm,
+  ),
+  gap: 1em,
+  caption: [Loss for run \#1],
+) <run1>
+
+
+== Validation Data
+
+One important insight is large language models, when trained on vasts amount of
+data, have a hard time overfitting.
+
+Therefore, usually we have a much smaller validation set, and instead rely on
+training metrics. I initially set it so 30% validation, and by increasing the
+number of tokens, I will decrease the size of the validation set.
+
+Another thing to take into account, since I am randomly splitting data, there
+might be some similar code ending up in the validation set, contaminating it. So
+I will have to do something about this.
+
+
 
 
 #bibliography("journal.bib")
-
-
 

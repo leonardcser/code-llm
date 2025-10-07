@@ -49,5 +49,6 @@ training:
   warmup_steps: 3750 # Number of warmup steps for learning rate
   scheduler_t_max_steps: null # T_max for CosineAnnealingLR (steps). Set to null to auto-calculate as epochs × batches_per_epoch
   log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
+  val_every_n_steps: null # Compute validation loss every N steps (null to validate only at epoch end)
   save_dir: "out/train/checkpoints"
   log_dir: "out/train/logs"
