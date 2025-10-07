@@ -340,6 +340,7 @@ class Trainer:
         """
         model.eval()
         val_losses = []
+        val_perplexities = []
 
         total = len(val_loader)
         pbar = self._create_progress_bar(val_loader, total, "Validation")
@@ -350,13 +351,28 @@ class Trainer:
             # Ensure loss is a tensor
             if isinstance(loss_output, dict):
                 loss = loss_output["loss"]
+                # Collect perplexity if available
+                if "perplexity" in loss_output:
+                    perplexity = loss_output["perplexity"]
+                    val_perplexities.append(perplexity.item())
             else:
                 loss = loss_output
             assert isinstance(loss, torch.Tensor)
             val_losses.append(loss.item())
-            self._update_progress_bar(pbar, {"loss": loss.item()})
+
+            # Update progress bar with loss and perplexity
+            progress_metrics = {"loss": loss.item()}
+            if val_perplexities:
+                progress_metrics["ppl"] = val_perplexities[-1]
+            self._update_progress_bar(pbar, progress_metrics)
 
         avg_val_loss = sum(val_losses) / len(val_losses) if val_losses else 0.0
+
+        # Log perplexity if collected
+        if val_perplexities:
+            avg_val_perplexity = sum(val_perplexities) / len(val_perplexities)
+            self.fabric.log("metrics/val_perplexity", avg_val_perplexity, step=self.global_step)  # type: ignore[call-arg]
+            self.fabric.print(f"Val perplexity: {avg_val_perplexity:.4f}")
 
         # Generate preview completions if configured
         if (

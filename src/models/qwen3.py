@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
+from torchmetrics.text import Perplexity
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
 from models.transformer import Transformer
@@ -138,6 +139,9 @@ class Qwen3(Transformer):
         self.scheduler_t_max_steps = scheduler_t_max_steps
         self.use_attention_mask = use_attention_mask
 
+        # Initialize validation metrics
+        self.val_perplexity = Perplexity()
+
     def forward(self, x, attention_mask=None, position_ids=None):
         """Forward pass through the model."""
         return self.model(x, attention_mask=attention_mask, position_ids=position_ids)
@@ -178,7 +182,10 @@ class Qwen3(Transformer):
         # Calculate loss
         loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
-        return loss
+        # Calculate perplexity
+        perplexity = self.val_perplexity(logits, y)
+
+        return {"loss": loss, "perplexity": perplexity}
 
     def configure_optimizers(self):  # type: ignore[override]
         """Configure optimizer and learning rate scheduler."""

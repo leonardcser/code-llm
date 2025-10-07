@@ -261,8 +261,7 @@ Another thing to take into account, since I am randomly splitting data, there
 might be some similar code ending up in the validation set, contaminating it. So
 I will have to do something about this.
 
-
-
+I also added the perplexity score to track the progress of the model.
 
 #bibliography("journal.bib")
 
