@@ -12,21 +12,25 @@ int main() {
     YAML::Node config = YAML::LoadFile("params.yaml");
 
     // Load configuration from params.yaml
-    const unsigned int seed = config["data"]["seed"].as<unsigned int>();
+    const unsigned int seed = config["tokenize"]["seed"].as<unsigned int>();
     const std::string dataset_path =
-        config["data"]["dataset_path"].as<std::string>();
+        config["tokenize"]["dataset_path"].as<std::string>();
     const std::string glob_pattern =
-        config["data"]["glob_pattern"].as<std::string>();
-    const std::string tok_file = config["data"]["tok_file"].as<std::string>();
+        config["tokenize"]["glob_pattern"].as<std::string>();
+    const std::string tok_file =
+        config["tokenize"]["tok_file"].as<std::string>();
     const std::string dataset_file =
-        config["data"]["dataset_file"].as<std::string>();
-    const size_t vocab_size = config["data"]["vocab_size"].as<size_t>();
+        config["tokenize"]["dataset_file"].as<std::string>();
+    const size_t vocab_size = config["tokenize"]["vocab_size"].as<size_t>();
     const size_t max_unique_words =
-        config["data"]["max_unique_words"].as<size_t>();
-    const std::string bos_token = config["data"]["bos_token"].as<std::string>();
-    const std::string eos_token = config["data"]["eos_token"].as<std::string>();
-    const std::string pad_token = config["data"]["pad_token"].as<std::string>();
-    const std::string pattern = config["data"]["pattern"].as<std::string>();
+        config["tokenize"]["max_unique_words"].as<size_t>();
+    const std::string bos_token =
+        config["tokenize"]["bos_token"].as<std::string>();
+    const std::string eos_token =
+        config["tokenize"]["eos_token"].as<std::string>();
+    const std::string pad_token =
+        config["tokenize"]["pad_token"].as<std::string>();
+    const std::string pattern = config["tokenize"]["pattern"].as<std::string>();
 
     // Define special tokens (UNK is automatically added)
     const tokenizer::SpecialTokensInput special_tokens(

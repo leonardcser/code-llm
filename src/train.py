@@ -16,6 +16,7 @@ def main():
     with open("params.yaml", "r") as f:
         params = yaml.safe_load(f)
 
+    tokenize_params = params["tokenize"]
     data_params = params["data"]
     model_params = params["model"]
     training_params = params["training"]
@@ -75,7 +76,7 @@ def main():
         print(f"Using PAD token ID: {pad_token_id}")
 
     data_module = Py150DataModule(
-        dataset_file=data_params["dataset_file"],
+        dataset_file=tokenize_params["dataset_file"],
         split_ratio=data_params["split_ratio"],
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],
@@ -92,7 +93,7 @@ def main():
     # Create model
     print("\nCreating model...")
     model = Qwen3(
-        vocab_size=data_params["vocab_size"],
+        vocab_size=tokenize_params["vocab_size"],
         hidden_size=model_params["hidden_size"],
         num_hidden_layers=model_params["num_hidden_layers"],
         num_attention_heads=model_params["num_attention_heads"],
@@ -159,7 +160,7 @@ def main():
     # Log hyperparameters to TensorBoard
     hparams_dict = {
         # Model params
-        "model/vocab_size": data_params["vocab_size"],
+        "model/vocab_size": tokenize_params["vocab_size"],
         "model/hidden_size": model_params["hidden_size"],
         "model/num_hidden_layers": model_params["num_hidden_layers"],
         "model/num_attention_heads": model_params["num_attention_heads"],
@@ -215,7 +216,7 @@ def main():
         val_every_n_steps=val_every_n_steps,
         save_dir=str(save_dir),
         use_attention_mask=use_attention_mask,
-        tokenizer_path=data_params["tok_file"],
+        tokenizer_path=tokenize_params["tok_file"],
         val_preview_prompts=val_preview_prompts,
     )
 

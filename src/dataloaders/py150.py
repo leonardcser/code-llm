@@ -83,19 +83,32 @@ class Py150DataModule(L.LightningDataModule):
             pad_amounts = max_len - lengths
 
             # Pad input and target sequences
-            xs = [F.pad(x, (0, pad_amt.item()), mode='constant', value=self.pad_token_id)
-                  for x, pad_amt in zip(xs, pad_amounts)]
-            ys = [F.pad(y, (0, pad_amt.item()), mode='constant', value=self.pad_token_id)
-                  for y, pad_amt in zip(ys, pad_amounts)]
+            xs = [
+                F.pad(x, (0, pad_amt.item()), mode="constant", value=self.pad_token_id)
+                for x, pad_amt in zip(xs, pad_amounts)
+            ]
+            ys = [
+                F.pad(y, (0, pad_amt.item()), mode="constant", value=self.pad_token_id)
+                for y, pad_amt in zip(ys, pad_amounts)
+            ]
 
             if has_masks:
                 # Pad attention masks: (1, seq_len, seq_len) -> (1, max_len, max_len)
                 # Pad last 2 dimensions: (left, right, top, bottom)
-                masks = [F.pad(mask, (0, pad_amt.item(), 0, pad_amt.item()), mode='constant', value=False)
-                        for mask, pad_amt in zip(masks, pad_amounts)]
+                masks = [
+                    F.pad(
+                        mask,
+                        (0, pad_amt.item(), 0, pad_amt.item()),
+                        mode="constant",
+                        value=False,
+                    )
+                    for mask, pad_amt in zip(masks, pad_amounts)
+                ]
                 # Pad position IDs
-                pos_ids = [F.pad(pos_id, (0, pad_amt.item()), mode='constant', value=0)
-                          for pos_id, pad_amt in zip(pos_ids, pad_amounts)]
+                pos_ids = [
+                    F.pad(pos_id, (0, pad_amt.item()), mode="constant", value=0)
+                    for pos_id, pad_amt in zip(pos_ids, pad_amounts)
+                ]
 
         # Stack tensors
         x = torch.stack(xs)
@@ -112,8 +125,12 @@ class Py150DataModule(L.LightningDataModule):
             seq_len = x.size(1)
 
             # Create padding samples filled with pad_token_id
-            pad_x = torch.full((num_pad_samples, seq_len), self.pad_token_id, dtype=x.dtype)
-            pad_y = torch.full((num_pad_samples, seq_len), self.pad_token_id, dtype=y.dtype)
+            pad_x = torch.full(
+                (num_pad_samples, seq_len), self.pad_token_id, dtype=x.dtype
+            )
+            pad_y = torch.full(
+                (num_pad_samples, seq_len), self.pad_token_id, dtype=y.dtype
+            )
 
             # Concatenate padding samples
             x = torch.cat([x, pad_x], dim=0)
@@ -123,12 +140,11 @@ class Py150DataModule(L.LightningDataModule):
                 # Create padding attention masks (all False)
                 pad_attention_mask = torch.zeros(
                     (num_pad_samples, *attention_mask.shape[1:]),
-                    dtype=attention_mask.dtype
+                    dtype=attention_mask.dtype,
                 )
                 # Create padding position IDs (all zeros)
                 pad_position_ids = torch.zeros(
-                    (num_pad_samples, seq_len),
-                    dtype=position_ids.dtype
+                    (num_pad_samples, seq_len), dtype=position_ids.dtype
                 )
 
                 attention_mask = torch.cat([attention_mask, pad_attention_mask], dim=0)
@@ -180,6 +196,7 @@ class Py150DataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             generator=generator,
+            prefetch_factor=4 if self.num_workers > 0 else None,
             collate_fn=self._collate_fn,
         )
 
@@ -195,5 +212,6 @@ class Py150DataModule(L.LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            prefetch_factor=4 if self.num_workers > 0 else None,
             collate_fn=self._collate_fn,
         )

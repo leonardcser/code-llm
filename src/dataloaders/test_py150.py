@@ -18,11 +18,12 @@ def config():
 @pytest.fixture(scope="module")
 def datamodule(config):
     """Create and setup datamodule."""
+    tokenize_params = config["tokenize"]
     data_params = config["data"]
     training_params = config["training"]
 
     dm = Py150DataModule(
-        dataset_file=data_params["dataset_file"],
+        dataset_file=tokenize_params["dataset_file"],
         split_ratio=data_params["split_ratio"],
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],
@@ -42,7 +43,7 @@ def datamodule(config):
 @pytest.fixture(scope="module")
 def tokenizer_obj(config):
     """Load tokenizer."""
-    return tok.load(config["data"]["tok_file"])
+    return tok.load(config["tokenize"]["tok_file"])
 
 
 def test_all_batches_have_correct_seq_length(datamodule, config):
@@ -251,13 +252,14 @@ def test_padding_with_pad_token(config):
     """Test that padding works correctly with pad_token_id using F.pad."""
     from dataloaders.py150 import Py150DataModule
 
+    tokenize_params = config["tokenize"]
     data_params = config["data"]
     pad_token_id = data_params["pad_token_id"]
     seq_len = data_params["seq_length"]
 
     # Create a datamodule with batch_size=3 to match our test batch
     dm = Py150DataModule(
-        dataset_file=data_params["dataset_file"],
+        dataset_file=tokenize_params["dataset_file"],
         split_ratio=data_params["split_ratio"],
         seq_length=seq_len,
         batch_size=3,  # Match the number of samples in our test batch

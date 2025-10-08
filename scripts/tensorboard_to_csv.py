@@ -1,14 +1,22 @@
 import os
 import argparse
-import numpy as np
 import csv
 from collections import defaultdict
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
 def tabulate_events(dpath):
+    # Set size_guidance to 0 (unlimited) to prevent data truncation
+    size_guidance = {
+        "scalars": 0,
+        "images": 0,
+        "histograms": 0,
+        "tensors": 0,
+    }
     summary_iterators = [
-        EventAccumulator(os.path.join(dpath, dname)).Reload()
+        EventAccumulator(
+            os.path.join(dpath, dname), size_guidance=size_guidance
+        ).Reload()
         for dname in os.listdir(dpath)
     ]
 
@@ -17,15 +25,16 @@ def tabulate_events(dpath):
         assert it.Tags()["scalars"] == tags
 
     out = defaultdict(list)
-    steps = []
+    steps_per_tag = {}
 
     for tag in tags:
-        steps = [e.step for e in summary_iterators[0].Scalars(tag)]
+        tag_steps = [e.step for e in summary_iterators[0].Scalars(tag)]
+        steps_per_tag[tag] = tag_steps
         for events in zip(*[acc.Scalars(tag) for acc in summary_iterators]):
             assert len(set(e.step for e in events)) == 1
             out[tag].append([e.value for e in events])
 
-    return out, steps
+    return out, steps_per_tag
 
 
 def write_csv(file_path, headers, steps, values):
@@ -38,12 +47,12 @@ def write_csv(file_path, headers, steps, values):
 
 def to_csv(dpath):
     dirs = os.listdir(dpath)
-    d, steps = tabulate_events(dpath)
+    d, steps_per_tag = tabulate_events(dpath)
 
     for tag, tag_values in d.items():
         file_path = get_file_path(dpath, tag)
         # tag_values is already a list of lists of floats
-        write_csv(file_path, dirs, steps, tag_values)
+        write_csv(file_path, dirs, steps_per_tag[tag], tag_values)
 
 
 def get_file_path(dpath, tag):

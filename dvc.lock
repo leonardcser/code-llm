@@ -51,23 +51,23 @@ stages:
       size: 2969
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 5316998dd659988726bdc1d9bb680b93
-      size: 3925
+      md5: 27da883c0b138a5a88a347124ce92d52
+      size: 4001
     params:
       params.yaml:
-        data.bos_token: <|startoftext|>
-        data.dataset_file: out/tokenize/dataset.bin
-        data.dataset_path: data/py150/data
-        data.eos_token: <|endoftext|>
-        data.glob_pattern: '*.py'
-        data.max_unique_words: 0
-        data.pad_token: <|pad|>
-        data.pattern: "'(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\\.\\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
-          ?[^ %_A-Za-z0-9]+(?: \")?[\\r\\n]*|%|\\s+$|\\s+(?=\\s)|\\s"
-        data.seed: 42
-        data.split_ratio: 0.7
-        data.tok_file: out/tokenize/tok.bin
-        data.vocab_size: 20260
+        tokenize:
+          dataset_path: data/py150/data
+          glob_pattern: '*.py'
+          seed: 42
+          max_unique_words: 0
+          vocab_size: 20260
+          pattern: "'(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\\.\\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
+            ?[^ %_A-Za-z0-9]+(?: \")?[\\r\\n]*|%|\\s+$|\\s+(?=\\s)|\\s"
+          bos_token: <|startoftext|>
+          eos_token: <|endoftext|>
+          pad_token: <|pad|>
+          dataset_file: out/tokenize/dataset.bin
+          tok_file: out/tokenize/tok.bin
     outs:
     - path: out/tokenize
       hash: md5
@@ -84,30 +84,30 @@ stages:
       nfiles: 2
     - path: src/dataloaders/py150.py
       hash: md5
-      md5: 8a6707980e3c9cd762787a93b23b21d6
-      size: 7367
+      md5: 0cb9c3ecbed9fd36b4586d114b6942e0
+      size: 7779
     - path: src/dataloaders/py150_dataloader.py
       hash: md5
       md5: 4cc60f04ffe920577911675367972a52
       size: 8909
     - path: src/models/qwen3.py
       hash: md5
-      md5: c4dc31b999219996d36ffa499df92acc
-      size: 10286
+      md5: cc122cd12a2e5bfe66f3f9326e9ba2ed
+      size: 10531
     - path: src/train.py
       hash: md5
-      md5: 84cea5f85c9784f03f6a9af3c7bf59b7
-      size: 8728
+      md5: df95b2145d8a6e4c283a1569e0209cc0
+      size: 8895
     - path: src/trainers/trainer.py
       hash: md5
-      md5: df2c34be5155c9f8b20d212b784d5f26
-      size: 15905
+      md5: b27b12110a5d50246bef81acb3381afe
+      size: 19386
     params:
       params.yaml:
         data.bos_token_id: 20256
         data.eos_token_id: 20257
-        data.max_tokens: 10000000
-        data.num_workers: 6
+        data.max_tokens: 50000000
+        data.num_workers: 8
         data.pad_token_id: 20258
         data.seq_length: 256
         model:
@@ -115,19 +115,22 @@ stages:
           num_hidden_layers: 4
           num_attention_heads: 16
           num_key_value_heads: 8
-          intermediate_size: 1024
-          max_position_embeddings: 2048
+          intermediate_size: 2048
+          max_position_embeddings: 512
           rope_theta: 10000.0
           attention_dropout: 0.1
           rms_norm_eps: 1e-06
           use_sliding_window: false
           sliding_window: 4096
+        tokenize.dataset_file: out/tokenize/dataset.bin
+        tokenize.tok_file: out/tokenize/tok.bin
+        tokenize.vocab_size: 20260
         training:
           prefix: qwen3
           batch_size: 32
-          epochs: 50
+          epochs: 30
           lr: 0.0001
-          weight_decay: 0.01
+          weight_decay: 0.1
           grad_clip: 1.0
           gradient_accumulation_steps: 4
           use_amp: true
@@ -138,23 +141,24 @@ stages:
           warmup_steps: 3750
           scheduler_t_max_steps:
           log_every_n_steps: 50
+          val_every_n_steps: 750
           save_dir: out/train/checkpoints
           log_dir: out/train/logs
     outs:
     - path: out/train/checkpoints/best.ckpt
       hash: md5
-      md5: a92dc1c4d9456fc7d9116b06fe8c2435
-      size: 475574599
+      md5: 34988c174217044a14f5039133cacc31
+      size: 551072135
     - path: out/train/checkpoints/latest.ckpt
       hash: md5
-      md5: 694152e9a9ee61ab5975c66fd40eed5e
-      size: 475574599
+      md5: 34988c174217044a14f5039133cacc31
+      size: 551072135
     - path: out/train/checkpoints/metrics.json
       hash: md5
-      md5: 4301e4809f7c28d7dd8bb8d294e976d0
-      size: 101
+      md5: 786ae0fc4aa713b51caa5b5191ff2ed4
+      size: 100
     - path: out/train/logs
       hash: md5
-      md5: 036d8b57209a6a34e1f1dd75924c100b.dir
-      size: 52375
-      nfiles: 1
+      md5: 381b6e5d06a91173597d9efba6ef6c2b.dir
+      size: 82973
+      nfiles: 2

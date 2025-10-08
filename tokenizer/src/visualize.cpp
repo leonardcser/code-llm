@@ -8,7 +8,8 @@
 int main() {
     YAML::Node config = YAML::LoadFile("params.yaml");
 
-    auto tok = tokenizer::load(config["data"]["tok_file"].as<std::string>());
+    auto tok =
+        tokenizer::load(config["tokenize"]["tok_file"].as<std::string>());
 
     std::vector<std::string> val_paths =
         io::load_txt(config["data"]["val_paths_file"].as<std::string>());

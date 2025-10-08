@@ -221,8 +221,8 @@ well.
 
 `commit 2361ffbae2b892f689e9af7984e596809f5462fe`
 
-During this first run the model overfitted as the loss plot shows on @run1. This
-is due to the $10'000'000$ token limit I set, which is too low.
+During this first run the model overfitted as the loss plot shows on @run1-loss.
+This is due to the $10'000'000$ token limit I set, which is too low.
 
 #let train_loss = lq.load-txt(
   read("runs/qwen3_1759779065/csv/loss_train.csv"),
@@ -235,8 +235,8 @@ is due to the $10'000'000$ token limit I set, which is too low.
 
 #figure(
   lq.diagram(
-    lq.plot(..train_loss, label: [train]),
-    lq.plot(..val_loss, label: [val]),
+    lq.plot(..train_loss, mark: none, label: [train]),
+    lq.plot(..val_loss, mark: none, label: [val]),
     legend: (position: top + right),
     xlabel: [steps],
     ylabel: [loss],
@@ -245,7 +245,7 @@ is due to the $10'000'000$ token limit I set, which is too low.
   ),
   gap: 1em,
   caption: [Loss for run \#1],
-) <run1>
+) <run1-loss>
 
 
 == Validation Data
@@ -262,6 +262,59 @@ might be some similar code ending up in the validation set, contaminating it. So
 I will have to do something about this.
 
 I also added the perplexity score to track the progress of the model.
+
+#pagebreak()
+
+== Run \#2
+
+Increasing the max tokens the model can learn from indeed helps it avoid
+overfitting too much. I went from $10'000'000$ to $50'000'000$.
+
+
+#let train_loss = lq.load-txt(
+  read("runs/qwen3_1759875426/csv/loss_train_step.csv"),
+  skip-rows: 1,
+)
+#let val_loss = lq.load-txt(
+  read("runs/qwen3_1759875426/csv/loss_val_step.csv"),
+  skip-rows: 1,
+)
+
+#figure(
+  lq.diagram(
+    lq.plot(..train_loss, mark: none, label: [train]),
+    lq.plot(..val_loss, mark: none, label: [val]),
+    legend: (position: top + right),
+    xlabel: [steps],
+    ylabel: [loss],
+    width: 80%,
+    height: 4cm,
+  ),
+  gap: 1em,
+  caption: [Loss for run \#2],
+) <run2-loss>
+
+I also tracked the validation perplexity during this runs. The model converges
+to a value around 70.
+
+#let ppl = lq.load-txt(
+  read("runs/qwen3_1759875426/csv/metrics_val_perplexity.csv"),
+  skip-rows: 1,
+)
+
+#figure(
+  lq.diagram(
+    lq.plot(..ppl, mark: none, label: [val]),
+    legend: (position: top + right),
+    xlabel: [steps],
+    ylabel: [loss],
+    width: 80%,
+    height: 4cm,
+    // yscale: "log",
+  ),
+  gap: 1em,
+  caption: [Perplexity for run \#2],
+) <run2-ppl>
 
 #bibliography("journal.bib")
 

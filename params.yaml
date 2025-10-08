@@ -1,9 +1,6 @@
-data:
-  dataset_file: "out/tokenize/dataset.bin"
-  tok_file: "out/tokenize/tok.bin"
+tokenize:
   dataset_path: "data/py150/data"
   glob_pattern: "*.py"
-  split_ratio: 0.7
   seed: 42
   max_unique_words: 0
   vocab_size: 20260 # 256 byte tokens + 20000 BPE merges + 4 special tokens (BOS, EOS, PAD, UNK)
@@ -11,10 +8,14 @@ data:
   bos_token: "<|startoftext|>"
   eos_token: "<|endoftext|>"
   pad_token: "<|pad|>"
+  dataset_file: "out/tokenize/dataset.bin"
+  tok_file: "out/tokenize/tok.bin"
 
+data:
+  split_ratio: 0.9
   seq_length: 256
-  max_tokens: 10000000
-  num_workers: 6
+  max_tokens: 50000000
+  num_workers: 8
   bos_token_id: 20256 # <|startoftext|> token for document boundaries
   eos_token_id: 20257 # <|endoftext|> token for document boundaries
   pad_token_id: 20258 # <|pad|> token for padding batches
@@ -25,8 +26,8 @@ model:
   num_hidden_layers: 4
   num_attention_heads: 16
   num_key_value_heads: 8
-  intermediate_size: 1024
-  max_position_embeddings: 2048
+  intermediate_size: 2048
+  max_position_embeddings: 512
   rope_theta: 10000.0
   attention_dropout: 0.1
   rms_norm_eps: 0.000001
@@ -36,9 +37,9 @@ model:
 training:
   prefix: "qwen3"
   batch_size: 32
-  epochs: 50
+  epochs: 30
   lr: 0.0001
-  weight_decay: 0.01
+  weight_decay: 0.1
   grad_clip: 1.0
   gradient_accumulation_steps: 4
   use_amp: true # Use automatic mixed precision training
@@ -49,6 +50,6 @@ training:
   warmup_steps: 3750 # Number of warmup steps for learning rate
   scheduler_t_max_steps: null # T_max for CosineAnnealingLR (steps). Set to null to auto-calculate as epochs × batches_per_epoch
   log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
-  val_every_n_steps: null # Compute validation loss every N steps (null to validate only at epoch end)
+  val_every_n_steps: 750 # Compute validation loss every N steps (null to validate only at epoch end)
   save_dir: "out/train/checkpoints"
   log_dir: "out/train/logs"

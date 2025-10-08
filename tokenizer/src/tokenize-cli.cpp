@@ -14,7 +14,8 @@ int main(int argc, char *argv[]) {
 
     // Load tokenizer from params.yaml
     YAML::Node config = YAML::LoadFile("params.yaml");
-    auto tok = tokenizer::load(config["data"]["tok_file"].as<std::string>());
+    auto tok =
+        tokenizer::load(config["tokenize"]["tok_file"].as<std::string>());
 
     // Concatenate all arguments (skip program name at argv[0])
     std::string input;

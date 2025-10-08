@@ -15,18 +15,7 @@ stages:
       - tokenizer/src/lib/tokenizer.hpp
       - tokenizer/src/tokenize.cpp
     params:
-      - data.dataset_file
-      - data.tok_file
-      - data.dataset_path
-      - data.glob_pattern
-      - data.split_ratio
-      - data.seed
-      - data.max_unique_words
-      - data.vocab_size
-      - data.pattern
-      - data.bos_token
-      - data.eos_token
-      - data.pad_token
+      - tokenize
     outs:
       - out/tokenize
 
@@ -40,6 +29,9 @@ stages:
       - src/dataloaders/py150_dataloader.py
       - src/trainers/trainer.py
     params:
+      - tokenize.dataset_file
+      - tokenize.tok_file
+      - tokenize.vocab_size
       - data.seq_length
       - data.max_tokens
       - data.num_workers

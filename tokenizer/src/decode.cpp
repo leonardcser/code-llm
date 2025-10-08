@@ -14,7 +14,8 @@ int main(int argc, char *argv[]) {
         max_tokens = std::stoul(argv[1]);
     }
 
-    const std::string tok_file = config["data"]["tok_file"].as<std::string>();
+    const std::string tok_file =
+        config["tokenize"]["tok_file"].as<std::string>();
     const std::string val_file = config["data"]["val_file"].as<std::string>();
 
     // Load tokenizer
