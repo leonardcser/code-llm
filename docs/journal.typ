@@ -219,7 +219,7 @@ well.
 
 == Run \#1
 
-`commit 2361ffbae2b892f689e9af7984e596809f5462fe`
+`commit 43f08f153f603d8842d88035a3c857822a6f14f5`
 
 During this first run the model overfitted as the loss plot shows on @run1-loss.
 This is due to the $10'000'000$ token limit I set, which is too low.
@@ -266,6 +266,8 @@ I also added the perplexity score to track the progress of the model.
 #pagebreak()
 
 == Run \#2
+
+`commit b7729217f0819d061032292c10228600dbd2ebf4`
 
 Increasing the max tokens the model can learn from indeed helps it avoid
 overfitting too much. I went from $10'000'000$ to $50'000'000$.
@@ -316,5 +318,41 @@ to a value around 70.
   caption: [Perplexity for run \#2],
 ) <run2-ppl>
 
-#bibliography("journal.bib")
+#pagebreak()
 
+== Run \#3
+
+// TODO: Correct this hash
+`commit 4d05d67662e3fd3316df699edc4e5e069873946d`
+
+#let train_loss = lq.load-txt(
+  read("runs/qwen3_1759926986/csv/loss_train_step.csv"),
+  skip-rows: 1,
+)
+#let val_loss = lq.load-txt(
+  read("runs/qwen3_1759926986/csv/loss_val_step.csv"),
+  skip-rows: 1,
+)
+
+#figure(
+  lq.diagram(
+    lq.plot(..train_loss, mark: none, label: [train]),
+    lq.plot(..val_loss, mark: none, label: [val]),
+    legend: (position: top + right),
+    xlabel: [steps],
+    ylabel: [loss],
+    width: 80%,
+    height: 4cm,
+  ),
+  gap: 1em,
+  caption: [Loss for run \#3],
+) <run3-loss>
+
+
+
+
+
+
+
+
+#bibliography("journal.bib")

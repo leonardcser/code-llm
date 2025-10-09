@@ -106,7 +106,7 @@ stages:
       params.yaml:
         data.bos_token_id: 20256
         data.eos_token_id: 20257
-        data.max_tokens: 50000000
+        data.max_tokens: 100000000
         data.num_workers: 8
         data.pad_token_id: 20258
         data.seq_length: 256
@@ -128,7 +128,7 @@ stages:
         training:
           prefix: qwen3
           batch_size: 32
-          epochs: 30
+          epochs: 2
           lr: 0.0001
           weight_decay: 0.1
           grad_clip: 1.0
@@ -138,27 +138,27 @@ stages:
           devices: 1
           strategy: auto
           seed: 42
-          warmup_steps: 3750
+          warmup_steps: 3000
           scheduler_t_max_steps:
           log_every_n_steps: 50
-          val_every_n_steps: 750
+          val_every_n_steps: 1000
           save_dir: out/train/checkpoints
           log_dir: out/train/logs
     outs:
     - path: out/train/checkpoints/best.ckpt
       hash: md5
-      md5: 34988c174217044a14f5039133cacc31
+      md5: dc751d39bff76413ab3cab6c7a2a8770
       size: 551072135
     - path: out/train/checkpoints/latest.ckpt
       hash: md5
-      md5: 34988c174217044a14f5039133cacc31
+      md5: dc751d39bff76413ab3cab6c7a2a8770
       size: 551072135
     - path: out/train/checkpoints/metrics.json
       hash: md5
-      md5: 786ae0fc4aa713b51caa5b5191ff2ed4
-      size: 100
+      md5: 48ec60645fa769273a2a9ee53b66b871
+      size: 199
     - path: out/train/logs
       hash: md5
-      md5: 381b6e5d06a91173597d9efba6ef6c2b.dir
-      size: 82973
-      nfiles: 2
+      md5: e6298d21983efda7012d30455666bced.dir
+      size: 125489
+      nfiles: 3

@@ -14,7 +14,7 @@ tokenize:
 data:
   split_ratio: 0.9
   seq_length: 256
-  max_tokens: 50000000
+  max_tokens: 100000000
   num_workers: 8
   bos_token_id: 20256 # <|startoftext|> token for document boundaries
   eos_token_id: 20257 # <|endoftext|> token for document boundaries
@@ -37,7 +37,7 @@ model:
 training:
   prefix: "qwen3"
   batch_size: 32
-  epochs: 30
+  epochs: 2
   lr: 0.0001
   weight_decay: 0.1
   grad_clip: 1.0
@@ -47,9 +47,9 @@ training:
   devices: 1 # Number of devices to use (GPUs/TPUs/etc.)
   strategy: "auto" # Distributed strategy: "auto", "ddp", "fsdp", "deepspeed", etc.
   seed: 42
-  warmup_steps: 3750 # Number of warmup steps for learning rate
+  warmup_steps: 3000 # Number of warmup steps for learning rate
   scheduler_t_max_steps: null # T_max for CosineAnnealingLR (steps). Set to null to auto-calculate as epochs × batches_per_epoch
   log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
-  val_every_n_steps: 750 # Compute validation loss every N steps (null to validate only at epoch end)
+  val_every_n_steps: 1000 # Compute validation loss every N steps (null to validate only at epoch end)
   save_dir: "out/train/checkpoints"
   log_dir: "out/train/logs"
