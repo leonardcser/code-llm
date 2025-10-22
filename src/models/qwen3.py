@@ -265,7 +265,7 @@ class Qwen3(Transformer):
         tokenizer = tok.load(tokenizer_path)
 
         # Encode prompt
-        input_ids = tokenizer.encode(prompt)
+        input_ids = tok.encode(prompt, tokenizer)
         input_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
 
         # Create attention mask
@@ -286,6 +286,6 @@ class Qwen3(Transformer):
 
         # Decode generated tokens
         generated_ids = outputs[0].tolist()
-        generated_text = tokenizer.decode(generated_ids)
+        generated_text = tok.decode(generated_ids, tokenizer)
 
         return generated_text

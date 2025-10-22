@@ -80,7 +80,7 @@ def predict_next_token(
         probs: Top 10 token probabilities as dict
     """
     # Encode input text
-    tokens = tokenizer.encode(text)
+    tokens = tok.encode(text, tokenizer)
 
     # Convert to tensor
     x = torch.tensor([tokens], dtype=torch.long, device=lightning_module.device)
@@ -110,12 +110,12 @@ def predict_next_token(
         token_id = int(torch.multinomial(probs, num_samples=1).item())
 
     # Decode token
-    token_text = tokenizer.decode([token_id])
+    token_text = tok.decode([token_id], tokenizer)
 
     # Get top 10 probabilities for display
     top_10_probs, top_10_indices = torch.topk(probs, k=10)
     top_10_dict = {
-        tokenizer.decode([int(idx.item())]): prob.item()
+        tok.decode([int(idx.item())], tokenizer): prob.item()
         for idx, prob in zip(top_10_indices, top_10_probs)
     }
 
@@ -164,7 +164,7 @@ def main():
     # Load tokenizer
     print(f"\nLoading tokenizer from {tokenizer_path}...")
     tokenizer = tok.load(tokenizer_path)
-    print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size})")
+    print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size()})")
 
     # Load model
     lightning_module, _hparams = load_model(checkpoint_path, fabric)
