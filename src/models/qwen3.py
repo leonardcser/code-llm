@@ -91,6 +91,7 @@ class Qwen3(Transformer):
         warmup_steps: int = 0,
         scheduler_t_max_steps: int | None = None,
         use_attention_mask: bool = False,
+        pad_token_id: int | None = None,
     ):
         """
         Initialize Lightning Qwen3 module.
@@ -113,6 +114,7 @@ class Qwen3(Transformer):
             warmup_steps: Number of warmup steps for learning rate
             scheduler_t_max_steps: T_max for CosineAnnealingLR (in steps). Will be auto-calculated if None.
             use_attention_mask: Whether to use attention masking for document boundaries
+            pad_token_id: Token ID for padding (used to ignore padding in loss calculation)
         """
         super().__init__()
         self.save_hyperparameters()
@@ -138,9 +140,12 @@ class Qwen3(Transformer):
         self.warmup_steps = warmup_steps
         self.scheduler_t_max_steps = scheduler_t_max_steps
         self.use_attention_mask = use_attention_mask
+        self.pad_token_id = pad_token_id
 
-        # Initialize validation metrics
-        self.val_perplexity = Perplexity()
+        # Initialize validation metrics with padding token ignored
+        self.val_perplexity = Perplexity(
+            ignore_index=pad_token_id if pad_token_id is not None else -100
+        )
 
     def forward(self, x, attention_mask=None, position_ids=None):
         """Forward pass through the model."""
@@ -160,8 +165,15 @@ class Qwen3(Transformer):
         outputs = self(x, attention_mask=attention_mask, position_ids=position_ids)
         logits = outputs.logits
 
-        # Calculate loss
-        loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        # Calculate loss (ignore padding tokens if pad_token_id is specified)
+        if self.pad_token_id is not None:
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                y.view(-1),
+                ignore_index=self.pad_token_id,
+            )
+        else:
+            loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
         return loss
 
@@ -179,10 +191,17 @@ class Qwen3(Transformer):
         outputs = self(x, attention_mask=attention_mask, position_ids=position_ids)
         logits = outputs.logits
 
-        # Calculate loss
-        loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        # Calculate loss (ignore padding tokens if pad_token_id is specified)
+        if self.pad_token_id is not None:
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                y.view(-1),
+                ignore_index=self.pad_token_id,
+            )
+        else:
+            loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
-        # Calculate perplexity
+        # Calculate perplexity (ignore_index already set in __init__)
         perplexity = self.val_perplexity(logits, y)
 
         return {"loss": loss, "perplexity": perplexity}
@@ -238,6 +257,78 @@ class Qwen3(Transformer):
         return total, trainable
 
     @torch.no_grad()
+    def generate_once(
+        self,
+        prompt: str,
+        tokenizer_path: str,
+        temperature: float = 1.0,
+        top_k: int | None = None,
+    ) -> tuple[int, str, dict[str, float]]:
+        """Predict next token given input prompt.
+
+        Args:
+            prompt: Input prompt text
+            tokenizer_path: Path to tokenizer binary file
+            temperature: Sampling temperature (higher = more random)
+            top_k: If set, only sample from top k most likely tokens
+
+        Returns:
+            token_id: Predicted token ID
+            token_text: Decoded token text
+            probs: Top 10 token probabilities as dict
+        """
+        import tokenizer as tok
+
+        # Load tokenizer
+        tokenizer = tok.load(tokenizer_path)
+
+        # Encode input text
+        tokens = tok.encode(prompt, tokenizer)
+
+        # Prepend BOS token to match training distribution (attention sink pattern)
+        bos_token_id = tokenizer.bos_token_id
+        tokens = [bos_token_id] + tokens
+
+        # Convert to tensor
+        x = torch.tensor([tokens], dtype=torch.long, device=self.device)
+
+        # Get model predictions (returns ModelOutput with .logits)
+        outputs = self(x)
+        logits = outputs.logits
+
+        # Get logits for the last position (next token)
+        next_token_logits = logits[0, -1, :]
+
+        # Apply temperature
+        if temperature != 1.0:
+            next_token_logits = next_token_logits / temperature
+
+        # Get probabilities
+        probs = torch.softmax(next_token_logits, dim=-1)
+
+        # Apply top-k filtering if specified
+        if top_k is not None:
+            top_k_probs, top_k_indices = torch.topk(probs, k=top_k)
+            # Sample from top-k
+            sample_idx = torch.multinomial(top_k_probs, num_samples=1)
+            token_id = int(top_k_indices[sample_idx].item())
+        else:
+            # Sample from full distribution
+            token_id = int(torch.multinomial(probs, num_samples=1).item())
+
+        # Decode token
+        token_text = tok.decode([token_id], tokenizer)
+
+        # Get top 10 probabilities for display
+        top_10_probs, top_10_indices = torch.topk(probs, k=10)
+        top_10_dict = {
+            tok.decode([int(idx.item())], tokenizer): prob.item()
+            for idx, prob in zip(top_10_indices, top_10_probs)
+        }
+
+        return token_id, token_text, top_10_dict
+
+    @torch.no_grad()
     def generate(
         self,
         prompt: str,
@@ -266,6 +357,11 @@ class Qwen3(Transformer):
 
         # Encode prompt
         input_ids = tok.encode(prompt, tokenizer)
+
+        # Prepend BOS token to match training distribution (attention sink pattern)
+        bos_token_id = tokenizer.bos_token_id
+        input_ids = [bos_token_id] + input_ids
+
         input_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
 
         # Create attention mask

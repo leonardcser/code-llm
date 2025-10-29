@@ -13,7 +13,7 @@ endif()
 # Set compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -flto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -fno-lto -fomit-frame-pointer -DNDEBUG -Wall -Wextra")
 
 # Option to build Python bindings
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
@@ -31,6 +31,25 @@ if(NOT BUILD_PYTHON_BINDINGS)
       GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
       GIT_TAG 0.8.0
     )
+    FetchContent_GetProperties(yaml-cpp)
+    if(NOT yaml-cpp_POPULATED)
+        FetchContent_Populate(yaml-cpp)
+        # Patch the emitterutils.cpp file to add the missing include
+        file(READ "${yaml-cpp_SOURCE_DIR}/src/emitterutils.cpp" EMITTER_CONTENT)
+        string(FIND "${EMITTER_CONTENT}" "#include <cstdint>" CSTDINT_FOUND)
+        if(CSTDINT_FOUND EQUAL -1)
+            string(REPLACE 
+                "#include \"yaml-cpp/null.h\""
+                "#include \"yaml-cpp/null.h\"\n#include <cstdint>"
+                EMITTER_CONTENT "${EMITTER_CONTENT}")
+            file(WRITE "${yaml-cpp_SOURCE_DIR}/src/emitterutils.cpp" "${EMITTER_CONTENT}")
+        endif()
+        
+        set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests")
+        set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools")
+        set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "Build yaml-cpp as static library")
+        add_subdirectory(${yaml-cpp_SOURCE_DIR} ${yaml-cpp_BINARY_DIR})
+    endif()
     set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests")
     set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools")
     set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "Build yaml-cpp as static library")
@@ -95,6 +114,7 @@ endforeach()
 # Create library from common sources
 if(LIB_SOURCES)
     add_library(llm_lib ${LIB_SOURCES})
+    set_target_properties(llm_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_link_libraries(llm_lib PUBLIC absl::flat_hash_map cereal::cereal ReflexLibStatic)
     target_compile_options(llm_lib PRIVATE -Wno-deprecated-declarations)
 

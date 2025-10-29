@@ -81,7 +81,7 @@ def main():
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],
         num_workers=data_params["num_workers"],
-        pin_memory=False,  # Don't use pin_memory on MPS
+        pin_memory=(accelerator == "cuda"),
         seed=seed,
         eos_token_id=eos_token_id,
         bos_token_id=bos_token_id,
@@ -110,6 +110,7 @@ def main():
         warmup_steps=training_params["warmup_steps"],
         scheduler_t_max_steps=training_params["scheduler_t_max_steps"],
         use_attention_mask=use_attention_mask,
+        pad_token_id=pad_token_id,
     )
 
     # Compile model if requested

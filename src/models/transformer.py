@@ -10,6 +10,30 @@ class Transformer(L.LightningModule, ABC):
 
     @abstractmethod
     @torch.no_grad()
+    def generate_once(
+        self,
+        prompt: str,
+        tokenizer_path: str,
+        temperature: float = 1.0,
+        top_k: int | None = None,
+    ) -> tuple[int, str, dict[str, float]]:
+        """Predict next token given input prompt.
+
+        Args:
+            prompt: Input prompt text
+            tokenizer_path: Path to tokenizer binary file
+            temperature: Sampling temperature (higher = more random)
+            top_k: If set, only sample from top k most likely tokens
+
+        Returns:
+            token_id: Predicted token ID
+            token_text: Decoded token text
+            probs: Top 10 token probabilities as dict
+        """
+        ...
+
+    @abstractmethod
+    @torch.no_grad()
     def generate(
         self,
         prompt: str,

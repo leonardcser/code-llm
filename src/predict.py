@@ -57,71 +57,6 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
     return lightning_module, hparams
 
 
-@torch.no_grad()
-def predict_next_token(
-    lightning_module: Transformer,
-    tokenizer: tok.Tokenizer,
-    text: str,
-    temperature: float = 1.0,
-    top_k: int | None = None,
-) -> tuple[int, str, dict[str, float]]:
-    """Predict next token given input text.
-
-    Args:
-        lightning_module: Lightning module (Qwen3)
-        tokenizer: Tokenizer for encoding/decoding
-        text: Input text
-        temperature: Sampling temperature (higher = more random)
-        top_k: If set, only sample from top k most likely tokens
-
-    Returns:
-        token_id: Predicted token ID
-        token_text: Decoded token text
-        probs: Top 10 token probabilities as dict
-    """
-    # Encode input text
-    tokens = tok.encode(text, tokenizer)
-
-    # Convert to tensor
-    x = torch.tensor([tokens], dtype=torch.long, device=lightning_module.device)
-
-    # Get model predictions (returns ModelOutput with .logits)
-    outputs = lightning_module(x)
-    logits = outputs.logits
-
-    # Get logits for the last position (next token)
-    next_token_logits = logits[0, -1, :]
-
-    # Apply temperature
-    if temperature != 1.0:
-        next_token_logits = next_token_logits / temperature
-
-    # Get probabilities
-    probs = torch.softmax(next_token_logits, dim=-1)
-
-    # Apply top-k filtering if specified
-    if top_k is not None:
-        top_k_probs, top_k_indices = torch.topk(probs, k=top_k)
-        # Sample from top-k
-        sample_idx = torch.multinomial(top_k_probs, num_samples=1)
-        token_id = int(top_k_indices[sample_idx].item())
-    else:
-        # Sample from full distribution
-        token_id = int(torch.multinomial(probs, num_samples=1).item())
-
-    # Decode token
-    token_text = tok.decode([token_id], tokenizer)
-
-    # Get top 10 probabilities for display
-    top_10_probs, top_10_indices = torch.topk(probs, k=10)
-    top_10_dict = {
-        tok.decode([int(idx.item())], tokenizer): prob.item()
-        for idx, prob in zip(top_10_indices, top_10_probs)
-    }
-
-    return token_id, token_text, top_10_dict
-
-
 def generate_text(
     lightning_module: Transformer,
     tokenizer_path: str,
@@ -161,13 +96,9 @@ def main():
     fabric = L.Fabric(accelerator="auto", devices=1)
     fabric.launch()
 
-    # Load tokenizer
-    print(f"\nLoading tokenizer from {tokenizer_path}...")
-    tokenizer = tok.load(tokenizer_path)
-    print(f"Tokenizer loaded (vocab_size: {tokenizer.vocab_size()})")
-
     # Load model
     lightning_module, _hparams = load_model(checkpoint_path, fabric)
+    print(f"\nTokenizer will be loaded from {tokenizer_path}")
 
     # Enable torch.compile for 2-4x additional speedup during generation
     # Note: First run will be slower due to compilation, subsequent runs are much faster
@@ -186,8 +117,10 @@ def main():
     test_text = "def hello():"
     print(f"\nInput text: {test_text!r}")
 
-    token_id, token_text, top_10 = predict_next_token(
-        lightning_module, tokenizer, test_text, temperature=0.5
+    token_id, token_text, top_10 = lightning_module.generate_once(
+        prompt=test_text,
+        tokenizer_path=tokenizer_path,
+        temperature=0.5,
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -223,6 +156,38 @@ def main():
     print("-" * 80)
     print(f"\n✓ Generation completed in {generation_time:.3f}s")
     print(f"  Tokens/second: {100 / generation_time:.1f}")
+
+    print("\n" + "=" * 80)
+    print("TEXT GENERATION (Step-by-Step Token Prediction)")
+    print("=" * 80)
+
+    prompt = "def sum_list(nums: List[int]"
+    print(f"\nPrompt: {prompt!r}")
+    print("Generating 50 tokens step by step with temperature=0.5, top_k=50\n")
+
+    max_steps = 50
+    generated_text = prompt
+
+    for step in range(max_steps):
+        token_id, token_text, top_10 = lightning_module.generate_once(
+            prompt=generated_text,
+            tokenizer_path=tokenizer_path,
+            temperature=0.5,
+            top_k=50,
+        )
+
+        generated_text += token_text
+
+        print(f"Step {step + 1:02d}: Token: {token_text!r} (ID: {token_id})")
+        print("  Top 5 likely tokens:")
+        for i, (tok_str, prob) in enumerate(list(top_10.items())[:5], 1):
+            print(f"    {i}. {tok_str!r:10s} {prob * 100:6.2f}%")
+        print("-" * 50)
+
+    print("\nGenerated text:")
+    print("-" * 80)
+    print(generated_text)
+    print("-" * 80)
 
 
 if __name__ == "__main__":

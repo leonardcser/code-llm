@@ -12,5 +12,8 @@ dependencies = []
 [tool.scikit-build]
 wheel.packages = ["python/tokenizer"]
 build-dir = "build-python"
-cmake.build-type = "Release"
-cmake.args = ["-DBUILD_PYTHON_BINDINGS=ON"]
+cmake.build-type = "RelWithDebInfo"
+cmake.args = ["-DBUILD_PYTHON_BINDINGS=ON", "-DCMAKE_INSTALL_DO_STRIP=OFF", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"]
+
+[tool.scikit-build.install]
+strip = false

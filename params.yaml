@@ -3,7 +3,7 @@ tokenize:
   glob_pattern: "*.py"
   seed: 42
   max_unique_words: 0
-  vocab_size: 20260 # 256 byte tokens + 20000 BPE merges + 4 special tokens (BOS, EOS, PAD, UNK)
+  vocab_size: 30260 # 256 byte tokens + 20000 BPE merges + 4 special tokens (BOS, EOS, PAD, UNK)
   pattern: '''(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\.\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}| ?[^ %_A-Za-z0-9]+(?: ")?[\r\n]*|%|\s+$|\s+(?=\s)|\s'
   bos_token: "<|startoftext|>"
   eos_token: "<|endoftext|>"
@@ -14,19 +14,19 @@ tokenize:
 data:
   split_ratio: 0.9
   seq_length: 256
-  max_tokens: 100000000
+  max_tokens: 0
   num_workers: 8
-  bos_token_id: 20256 # <|startoftext|> token for document boundaries
-  eos_token_id: 20257 # <|endoftext|> token for document boundaries
-  pad_token_id: 20258 # <|pad|> token for padding batches
+  bos_token_id: 30256 # <|startoftext|> token for document boundaries
+  eos_token_id: 30257 # <|endoftext|> token for document boundaries
+  pad_token_id: 30258 # <|pad|> token for padding batches
 
 model:
   # Qwen3 architecture parameters
   hidden_size: 512
-  num_hidden_layers: 4
-  num_attention_heads: 16
-  num_key_value_heads: 8
-  intermediate_size: 2048
+  num_hidden_layers: 10
+  num_attention_heads: 32
+  num_key_value_heads: 16
+  intermediate_size: 1024
   max_position_embeddings: 512
   rope_theta: 10000.0
   attention_dropout: 0.1
@@ -37,19 +37,19 @@ model:
 training:
   prefix: "qwen3"
   batch_size: 32
-  epochs: 2
+  epochs: 10
   lr: 0.0001
   weight_decay: 0.1
   grad_clip: 1.0
   gradient_accumulation_steps: 4
   use_amp: true # Use automatic mixed precision training
-  compile_mode: "max-autotune" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
+  compile_mode: "max-autotune-no-cudagraphs" # Options: null, "default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"
   devices: 1 # Number of devices to use (GPUs/TPUs/etc.)
   strategy: "auto" # Distributed strategy: "auto", "ddp", "fsdp", "deepspeed", etc.
   seed: 42
   warmup_steps: 3000 # Number of warmup steps for learning rate
   scheduler_t_max_steps: null # T_max for CosineAnnealingLR (steps). Set to null to auto-calculate as epochs × batches_per_epoch
-  log_every_n_steps: 50 # Log training metrics every N steps (null to disable per-step logging)
-  val_every_n_steps: 1000 # Compute validation loss every N steps (null to validate only at epoch end)
+  log_every_n_steps: 100 # Log training metrics every N steps (null to disable per-step logging)
+  val_every_n_steps: 5000 # Compute validation loss every N steps (null to validate only at epoch end)
   save_dir: "out/train/checkpoints"
   log_dir: "out/train/logs"
