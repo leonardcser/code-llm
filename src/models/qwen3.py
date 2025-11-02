@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, SequentialLR
 from torchmetrics.text import Perplexity
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
-from models.transformer import Transformer
+import lightning as L
 
 
 def create_qwen3_model(
@@ -69,7 +69,7 @@ def create_qwen3_model(
     return model
 
 
-class Qwen3(Transformer):
+class Qwen3(L.LightningModule):
     """Lightning module wrapper for Qwen3 causal language model."""
 
     def __init__(
@@ -173,7 +173,9 @@ class Qwen3(Transformer):
                 ignore_index=self.pad_token_id,
             )
         else:
-            loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)), y.view(-1)
+            )
 
         return loss
 
@@ -199,7 +201,9 @@ class Qwen3(Transformer):
                 ignore_index=self.pad_token_id,
             )
         else:
-            loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)), y.view(-1)
+            )
 
         # Calculate perplexity (ignore_index already set in __init__)
         perplexity = self.val_perplexity(logits, y)

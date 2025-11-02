@@ -25,19 +25,21 @@ stages:
       - out/tokenize
       - src/train.py
       - src/models/qwen3.py
-      - src/dataloaders/py150.py
-      - src/dataloaders/py150_dataloader.py
+      - src/dataloaders/token_datamodule.py
+      - src/dataloaders/token_dataloader.py
       - src/trainers/trainer.py
     params:
-      - tokenize.dataset_file
+      - tokenize.dataset_dir
       - tokenize.tok_file
       - tokenize.vocab_size
+      - data.dataset_dir
       - data.seq_length
       - data.max_tokens
       - data.num_workers
       - data.bos_token_id
       - data.eos_token_id
       - data.pad_token_id
+      - data.split_ratio
       - model
       - training
     outs:

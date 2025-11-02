@@ -1,4 +1,4 @@
-"""PyTorch Lightning DataModule for Py150 dataset."""
+"""PyTorch Lightning DataModule for tokenized datasets."""
 
 import lightning as L
 import torch
@@ -6,15 +6,15 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from typing import Optional
 
-from dataloaders.py150_dataloader import TokenDataset
+from dataloaders.token_dataloader import TokenDataset
 
 
-class Py150DataModule(L.LightningDataModule):
-    """Lightning DataModule for Py150 tokenized dataset."""
+class TokenDataModule(L.LightningDataModule):
+    """Lightning DataModule for tokenized datasets."""
 
     def __init__(
         self,
-        dataset_file: str,
+        dataset_dir: str,
         split_ratio: float = 0.7,
         seq_length: int = 512,
         batch_size: int = 32,
@@ -27,10 +27,10 @@ class Py150DataModule(L.LightningDataModule):
         pad_token_id: Optional[int] = None,
     ):
         """
-        Initialize Py150 DataModule.
+        Initialize TokenDataModule.
 
         Args:
-            dataset_file: Path to combined dataset tokens binary file
+            dataset_dir: Path to directory containing chunk_*.bin files
             split_ratio: Ratio of data to use for training (rest for validation)
             seq_length: Length of each sequence
             batch_size: Batch size
@@ -45,7 +45,7 @@ class Py150DataModule(L.LightningDataModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.dataset_file = dataset_file
+        self.dataset_dir = dataset_dir
         self.split_ratio = split_ratio
         self.seq_length = seq_length
         self.batch_size = batch_size
@@ -159,22 +159,22 @@ class Py150DataModule(L.LightningDataModule):
         """Setup datasets for training and validation."""
         if stage == "fit" or stage is None:
             self.train_dataset = TokenDataset(
-                self.dataset_file,
-                self.seq_length,
-                self.eos_token_id,
-                self.bos_token_id,
-                self.split_ratio,
-                "train",
-                self.max_tokens,
+                token_dir=self.dataset_dir,
+                seq_length=self.seq_length,
+                eos_token_id=self.eos_token_id,
+                bos_token_id=self.bos_token_id,
+                split_ratio=self.split_ratio,
+                split_type="train",
+                max_tokens=self.max_tokens,
             )
             self.val_dataset = TokenDataset(
-                self.dataset_file,
-                self.seq_length,
-                self.eos_token_id,
-                self.bos_token_id,
-                self.split_ratio,
-                "val",
-                self.max_tokens,
+                token_dir=self.dataset_dir,
+                seq_length=self.seq_length,
+                eos_token_id=self.eos_token_id,
+                bos_token_id=self.bos_token_id,
+                split_ratio=self.split_ratio,
+                split_type="val",
+                max_tokens=self.max_tokens,
             )
 
     def train_dataloader(self):

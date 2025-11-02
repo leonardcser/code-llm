@@ -29,14 +29,22 @@ using SpecialTokensMap = std::unordered_map<std::string, SpecialToken>;
 
 // Input struct for specifying special tokens during training
 struct SpecialTokensInput {
-    std::string bos_token;  // Beginning of sequence (e.g., "<|startoftext|>")
-    std::string eos_token;  // End of sequence (e.g., "<|endoftext|>")
-    std::string pad_token;  // Padding token (e.g., "<|pad|>")
+    std::string bos_token;        // Beginning of sequence (e.g., "<|startoftext|>")
+    std::string eos_token;        // End of sequence (e.g., "<|endoftext|>")
+    std::string pad_token;        // Padding token (e.g., "<|pad|>")
+    std::string cursor_token;     // Cursor position token (e.g., "<|cursor|>")
+    std::string edit_start_token; // Edit start token (e.g., "<|edit_start|>")
+    std::string edit_end_token;   // Edit end token (e.g., "<|edit_end|>")
     // UNK token is always added automatically - not user-specified
 
     SpecialTokensInput() = default;
     SpecialTokensInput(std::string bos, std::string eos, std::string pad)
-        : bos_token(bos), eos_token(eos), pad_token(pad) {}
+        : bos_token(bos), eos_token(eos), pad_token(pad),
+          cursor_token(""), edit_start_token(""), edit_end_token("") {}
+    SpecialTokensInput(std::string bos, std::string eos, std::string pad,
+                      std::string cursor, std::string edit_start, std::string edit_end)
+        : bos_token(bos), eos_token(eos), pad_token(pad),
+          cursor_token(cursor), edit_start_token(edit_start), edit_end_token(edit_end) {}
 };
 
 struct Tokenizer {
@@ -49,6 +57,9 @@ struct Tokenizer {
     TokenId bos_token_id = 0;
     TokenId eos_token_id = 0;
     TokenId pad_token_id = 0;
+    TokenId cursor_token_id = 0;
+    TokenId edit_start_token_id = 0;
+    TokenId edit_end_token_id = 0;
 };
 
 // Training function

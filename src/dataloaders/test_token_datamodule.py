@@ -1,6 +1,6 @@
 import pytest
 import tokenizer as tok
-from dataloaders.py150 import Py150DataModule
+from dataloaders.token_datamodule import TokenDataModule
 import torch
 import yaml
 
@@ -22,7 +22,7 @@ def datamodule(config):
     data_params = config["data"]
     training_params = config["training"]
 
-    dm = Py150DataModule(
+    dm = TokenDataModule(
         dataset_file=tokenize_params["dataset_file"],
         split_ratio=data_params["split_ratio"],
         seq_length=data_params["seq_length"],
@@ -250,7 +250,7 @@ def test_datamodule_has_train_and_val_datasets(datamodule):
 
 def test_padding_with_pad_token(config):
     """Test that padding works correctly with pad_token_id using F.pad."""
-    from dataloaders.py150 import Py150DataModule
+    from dataloaders.token_datamodule import TokenDataModule
 
     tokenize_params = config["tokenize"]
     data_params = config["data"]
@@ -258,7 +258,7 @@ def test_padding_with_pad_token(config):
     seq_len = data_params["seq_length"]
 
     # Create a datamodule with batch_size=3 to match our test batch
-    dm = Py150DataModule(
+    dm = TokenDataModule(
         dataset_file=tokenize_params["dataset_file"],
         split_ratio=data_params["split_ratio"],
         seq_length=seq_len,

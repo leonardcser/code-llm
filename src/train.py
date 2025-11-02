@@ -8,7 +8,7 @@ import lightning as L
 from lightning.fabric.loggers.tensorboard import TensorBoardLogger
 
 from models.qwen3 import Qwen3
-from dataloaders.py150 import Py150DataModule
+from dataloaders.token_datamodule import TokenDataModule
 from trainers.trainer import Trainer
 
 
@@ -75,8 +75,9 @@ def main():
     if pad_token_id is not None:
         print(f"Using PAD token ID: {pad_token_id}")
 
-    data_module = Py150DataModule(
-        dataset_file=tokenize_params["dataset_file"],
+    # Initialize data module
+    data_module = TokenDataModule(
+        dataset_dir=data_params["dataset_dir"],
         split_ratio=data_params["split_ratio"],
         seq_length=data_params["seq_length"],
         batch_size=training_params["batch_size"],

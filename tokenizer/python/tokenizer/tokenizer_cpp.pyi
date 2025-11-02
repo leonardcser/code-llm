@@ -19,9 +19,18 @@ class SpecialTokensInput:
     bos_token: str
     eos_token: str
     pad_token: str
+    cursor_token: str
+    edit_start_token: str
+    edit_end_token: str
 
     def __init__(
-        self, bos_token: str = "", eos_token: str = "", pad_token: str = ""
+        self,
+        bos_token: str = "",
+        eos_token: str = "",
+        pad_token: str = "",
+        cursor_token: str = "",
+        edit_start_token: str = "",
+        edit_end_token: str = "",
     ) -> None: ...
 
 class Tokenizer:
@@ -34,6 +43,9 @@ class Tokenizer:
     bos_token_id: int
     eos_token_id: int
     pad_token_id: int
+    cursor_token_id: int
+    edit_start_token_id: int
+    edit_end_token_id: int
 
     def __init__(self) -> None: ...
     def vocab_size(self) -> int: ...

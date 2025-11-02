@@ -2,13 +2,14 @@
 
 import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 import lightning as L
 from lightning.fabric.loggers.logger import Logger
 import torch
 from tqdm import tqdm
 
+from models.qwen3 import Qwen3
 from models.transformer import Transformer
 
 
@@ -274,9 +275,7 @@ class Trainer:
                 and self.global_step % self.val_every_n_steps == 0
                 and val_loader is not None
             ):
-                self.fabric.print(
-                    f"\nRunning validation at step {self.global_step}..."
-                )
+                self.fabric.print(f"\nRunning validation at step {self.global_step}...")
                 last_val_loss = self.val_loop(model, val_loader)
                 self.fabric.print(f"Val loss: {last_val_loss:.4f}")
 
@@ -371,7 +370,9 @@ class Trainer:
         # Log perplexity if collected
         if val_perplexities:
             avg_val_perplexity = sum(val_perplexities) / len(val_perplexities)
-            self.fabric.log("metrics/val_perplexity", avg_val_perplexity, step=self.global_step)  # type: ignore[call-arg]
+            self.fabric.log(
+                "metrics/val_perplexity", avg_val_perplexity, step=self.global_step
+            )  # type: ignore[call-arg]
             self.fabric.print(f"Val perplexity: {avg_val_perplexity:.4f}")
 
         # Generate preview completions if configured
@@ -501,10 +502,10 @@ class Trainer:
 
     def _generate_validation_previews(self, model: Transformer) -> None:
         """
-        Generate text completion previews and log to TensorBoard.
+        Generate text completion or correction previews and log to TensorBoard.
 
         Args:
-            model: Model to generate completions with
+            model: Model to generate completions/corrections with
         """
         if not self.fabric.is_global_zero:
             return
@@ -517,17 +518,15 @@ class Trainer:
 
         for i, prompt in enumerate(self.val_preview_prompts):
             try:
-                # Generate completion
-                completion = model.generate(
+                output = cast(Qwen3, model).generate(
                     prompt=prompt,
                     tokenizer_path=self.tokenizer_path,
                     max_new_tokens=50,
                     temperature=0.3,
                     top_k=50,
                 )
-
                 # Format as markdown for better readability
-                formatted_text = f"**Prompt:** `{prompt}`\n\n**Completion:**\n```python\n{completion}\n```"
+                formatted_text = f"**Prompt:** `{prompt}`\n\n**Completion:**\n```python\n{output}\n```"
 
                 # Log to TensorBoard
                 self.fabric.logger.experiment.add_text(  # type: ignore[union-attr]

@@ -21,9 +21,15 @@ PYBIND11_MODULE(tokenizer_cpp, m) {
         .def(py::init<>())
         .def(py::init<std::string, std::string, std::string>(),
              py::arg("bos_token"), py::arg("eos_token"), py::arg("pad_token"))
+        .def(py::init<std::string, std::string, std::string, std::string, std::string, std::string>(),
+             py::arg("bos_token"), py::arg("eos_token"), py::arg("pad_token"),
+             py::arg("cursor_token"), py::arg("edit_start_token"), py::arg("edit_end_token"))
         .def_readwrite("bos_token", &tokenizer::SpecialTokensInput::bos_token)
         .def_readwrite("eos_token", &tokenizer::SpecialTokensInput::eos_token)
-        .def_readwrite("pad_token", &tokenizer::SpecialTokensInput::pad_token);
+        .def_readwrite("pad_token", &tokenizer::SpecialTokensInput::pad_token)
+        .def_readwrite("cursor_token", &tokenizer::SpecialTokensInput::cursor_token)
+        .def_readwrite("edit_start_token", &tokenizer::SpecialTokensInput::edit_start_token)
+        .def_readwrite("edit_end_token", &tokenizer::SpecialTokensInput::edit_end_token);
 
     // Bind Tokenizer struct
     py::class_<tokenizer::Tokenizer>(m, "Tokenizer")
@@ -35,6 +41,9 @@ PYBIND11_MODULE(tokenizer_cpp, m) {
         .def_readwrite("bos_token_id", &tokenizer::Tokenizer::bos_token_id)
         .def_readwrite("eos_token_id", &tokenizer::Tokenizer::eos_token_id)
         .def_readwrite("pad_token_id", &tokenizer::Tokenizer::pad_token_id)
+        .def_readwrite("cursor_token_id", &tokenizer::Tokenizer::cursor_token_id)
+        .def_readwrite("edit_start_token_id", &tokenizer::Tokenizer::edit_start_token_id)
+        .def_readwrite("edit_end_token_id", &tokenizer::Tokenizer::edit_end_token_id)
         .def("vocab_size", [](const tokenizer::Tokenizer &tok) {
             // Calculate actual vocab size including special tokens
             tokenizer::TokenId max_id = static_cast<tokenizer::TokenId>(tok.ranks.size());

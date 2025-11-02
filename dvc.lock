@@ -43,37 +43,42 @@ stages:
       size: 1134
     - path: tokenizer/src/lib/tokenizer.cpp
       hash: md5
-      md5: cd155bc8db382f7b3dc9b7c6eab09d1d
-      size: 42063
+      md5: beb1595474211bafbde00a5e8946cd79
+      size: 43806
     - path: tokenizer/src/lib/tokenizer.hpp
       hash: md5
-      md5: b7bea226ec8c03212c41cd4bc974d5c6
-      size: 2969
+      md5: 077446b68fa353a79c6af9e80c0926f6
+      size: 3706
     - path: tokenizer/src/tokenize.cpp
       hash: md5
-      md5: 27da883c0b138a5a88a347124ce92d52
-      size: 4001
+      md5: e38e0faff33642ec781675be7ce5cbba
+      size: 12728
     params:
       params.yaml:
         tokenize:
-          dataset_path: data/py150/data
+          dataset_path: data/bigcode-the-stack-dedup
           glob_pattern: '*.py'
           seed: 42
           max_unique_words: 0
-          vocab_size: 30260
+          vocab_size: 35263
           pattern: "'(?i:[sdmt]|ll|ve|re)| ?[A-Za-z_(][A-Za-z_.]*|%(?:\\.\\d+)?[sdifFeEgGxXoc%]|[0-9]{1,3}|
             ?[^ %_A-Za-z0-9]+(?: \")?[\\r\\n]*|%|\\s+$|\\s+(?=\\s)|\\s"
           bos_token: <|startoftext|>
           eos_token: <|endoftext|>
           pad_token: <|pad|>
-          dataset_file: out/tokenize/dataset.bin
+          cursor_token: <|cursor|>
+          edit_start_token: <|edit_start|>
+          edit_end_token: <|edit_end|>
+          max_train_size: 5GB
+          chunk_size: 256M
+          dataset_dir: out/tokenize/chunks
           tok_file: out/tokenize/tok.bin
     outs:
     - path: out/tokenize
       hash: md5
-      md5: bb48e703288bc786d2816803581eab25.dir
-      size: 827690046
-      nfiles: 2
+      md5: 2e65bce054cb499fc7aa433e08e93711.dir
+      size: 10751383763
+      nfiles: 12
   train:
     cmd: uv run python src/train.py
     deps:

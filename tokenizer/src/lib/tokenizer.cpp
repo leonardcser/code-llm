@@ -202,6 +202,9 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
     if (!special_tokens_input.bos_token.empty()) num_special_tokens++;
     if (!special_tokens_input.eos_token.empty()) num_special_tokens++;
     if (!special_tokens_input.pad_token.empty()) num_special_tokens++;
+    if (!special_tokens_input.cursor_token.empty()) num_special_tokens++;
+    if (!special_tokens_input.edit_start_token.empty()) num_special_tokens++;
+    if (!special_tokens_input.edit_end_token.empty()) num_special_tokens++;
 
     // Calculate number of BPE merges: total - 256 bytes - special tokens
     const size_t num_bpe_merges = vocab_size - 256 - num_special_tokens;
@@ -632,6 +635,33 @@ tokenizer::bpe_train(std::string &text, size_t vocab_size,
             SpecialToken(special_tokens_input.pad_token, special_id, true);
         tokenizer.pad_token_id = special_id;
         std::cout << "  PAD: " << special_tokens_input.pad_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    if (!special_tokens_input.cursor_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.cursor_token] =
+            SpecialToken(special_tokens_input.cursor_token, special_id, true);
+        tokenizer.cursor_token_id = special_id;
+        std::cout << "  CURSOR: " << special_tokens_input.cursor_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    if (!special_tokens_input.edit_start_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.edit_start_token] =
+            SpecialToken(special_tokens_input.edit_start_token, special_id, true);
+        tokenizer.edit_start_token_id = special_id;
+        std::cout << "  EDIT_START: " << special_tokens_input.edit_start_token << " (ID "
+                  << special_id << ")" << std::endl;
+        special_id++;
+    }
+
+    if (!special_tokens_input.edit_end_token.empty()) {
+        tokenizer.special_tokens[special_tokens_input.edit_end_token] =
+            SpecialToken(special_tokens_input.edit_end_token, special_id, true);
+        tokenizer.edit_end_token_id = special_id;
+        std::cout << "  EDIT_END: " << special_tokens_input.edit_end_token << " (ID "
                   << special_id << ")" << std::endl;
         special_id++;
     }
@@ -1120,6 +1150,9 @@ void tokenizer::save(const Tokenizer &tokenizer, const std::string &filename) {
     archive(tokenizer.bos_token_id);
     archive(tokenizer.eos_token_id);
     archive(tokenizer.pad_token_id);
+    archive(tokenizer.cursor_token_id);
+    archive(tokenizer.edit_start_token_id);
+    archive(tokenizer.edit_end_token_id);
 }
 
 tokenizer::Tokenizer tokenizer::load(const std::string &filename) {
@@ -1150,6 +1183,9 @@ tokenizer::Tokenizer tokenizer::load(const std::string &filename) {
     archive(tok.bos_token_id);
     archive(tok.eos_token_id);
     archive(tok.pad_token_id);
+    archive(tok.cursor_token_id);
+    archive(tok.edit_start_token_id);
+    archive(tok.edit_end_token_id);
 
     return tok;
 }

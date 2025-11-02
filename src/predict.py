@@ -1,32 +1,13 @@
-"""Predict next token using trained transformer model."""
+"""Inference script for trained transformer models."""
 
+import argparse
 import time
-import torch
 import lightning as L
+import yaml
+from typing import cast
 
 from models.qwen3 import Qwen3
-import tokenizer as tok
-
 from models.transformer import Transformer
-
-# TODO: FUTURE ENHANCEMENT - HuggingFace Tokenizer Integration
-# ============================================================
-# Currently using custom C++ tokenizer directly, which works fine for manual inference.
-#
-# OPTIONAL: Create a HuggingFace PreTrainedTokenizerFast wrapper to enable:
-#   1. Using model.generate() instead of custom sampling loop
-#   2. Integration with HF pipelines and ecosystem
-#   3. Automatic padding/truncation utilities
-#
-# Implementation approach:
-#   - Create src/tokenizers/custom_tokenizer.py
-#   - Subclass PreTrainedTokenizerFast
-#   - Wrap C++ tokenizer encode/decode methods
-#   - Map special token IDs (bos, eos, pad, unk)
-#   - Register with AutoTokenizer if desired
-#
-# For now, keeping current approach as it works perfectly for training and
-# custom inference. Only create wrapper if you need model.generate() later.
 
 
 def load_model(checkpoint_path: str, fabric: L.Fabric):
@@ -37,6 +18,9 @@ def load_model(checkpoint_path: str, fabric: L.Fabric):
     checkpoint = fabric.load(checkpoint_path)
 
     hparams = checkpoint["hparams"]
+
+    # Load Qwen3 model
+    print("Using model: Qwen3")
     lightning_module = Qwen3(**hparams)
 
     # Load state dict into reconstructed module
@@ -65,10 +49,10 @@ def generate_text(
     temperature: float = 1.0,
     top_k: int | None = None,
 ) -> str:
-    """Generate text using the Lightning module's generate method.
+    """Generate text using the Lightning module.
 
     Args:
-        lightning_module: Lightning module (Qwen3) with generate method
+        lightning_module: Lightning module (Qwen3)
         tokenizer_path: Path to tokenizer binary file
         prompt: Initial prompt text
         max_tokens: Maximum number of tokens to generate
@@ -76,9 +60,9 @@ def generate_text(
         top_k: If set, only sample from top k most likely tokens
 
     Returns:
-        Generated text (prompt + generated tokens)
+        Generated text
     """
-    return lightning_module.generate(
+    return cast(Qwen3, lightning_module).generate(
         prompt=prompt,
         tokenizer_path=tokenizer_path,
         max_new_tokens=max_tokens,
@@ -88,39 +72,86 @@ def generate_text(
 
 
 def main():
-    # Configuration
-    checkpoint_path = "out/train/checkpoints/best.ckpt"
-    tokenizer_path = "out/tokenize/tok.bin"
+    # Load configuration from params.yaml
+    try:
+        with open("params.yaml", "r") as f:
+            params = yaml.safe_load(f)
+        print("Loaded configuration from params.yaml")
+    except Exception as e:
+        print(f"Warning: Could not load params.yaml: {e}")
+        params = {}
+
+    # Extract default values from params
+    tokenize_params = params.get("tokenize", {})
+    data_params = params.get("data", {})
+    training_params = params.get("training", {})
+
+    default_checkpoint = training_params.get("save_dir", "out/train") + "/best.ckpt"
+    default_tokenizer = tokenize_params.get("tok_file", "out/tokenize/tok.bin")
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Inference with trained transformer model",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=default_checkpoint,
+        help="Path to model checkpoint",
+    )
+    parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default=default_tokenizer,
+        help="Path to tokenizer binary file",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        help="Input prompt text",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=100,
+        help="Maximum tokens to generate",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.5,
+        help="Sampling temperature",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=50,
+        help="Top-k sampling",
+    )
+    args = parser.parse_args()
 
     # Initialize Fabric for inference
     fabric = L.Fabric(accelerator="auto", devices=1)
     fabric.launch()
 
     # Load model
-    lightning_module, _hparams = load_model(checkpoint_path, fabric)
-    print(f"\nTokenizer will be loaded from {tokenizer_path}")
+    lightning_module, _hparams = load_model(args.checkpoint, fabric)
+    print(f"\nTokenizer: {args.tokenizer}")
 
-    # Enable torch.compile for 2-4x additional speedup during generation
-    # Note: First run will be slower due to compilation, subsequent runs are much faster
-    # print("\nEnabling torch.compile for optimized inference...")
-    # try:
-    #     lightning_module.model.forward = torch.compile(lightning_module.model.forward, mode="reduce-overhead", fullgraph=True)
-    #     print("✓ torch.compile enabled (first generation will compile, subsequent runs will be fast)")
-    # except Exception as e:
-    #     print(f"⚠ torch.compile failed (continuing without it): {e}")
-
-    # Example prediction
+    # Text generation with next token prediction
     print("\n" + "=" * 80)
-    print("NEXT TOKEN PREDICTION (Single Token Demo)")
+    print("NEXT TOKEN PREDICTION - Single Token Demo")
     print("=" * 80)
 
-    test_text = "def hello():"
+    # Use provided prompt or default example
+    test_text = args.prompt if args.prompt else "def hello():"
     print(f"\nInput text: {test_text!r}")
 
     token_id, token_text, top_10 = lightning_module.generate_once(
         prompt=test_text,
-        tokenizer_path=tokenizer_path,
-        temperature=0.5,
+        tokenizer_path=args.tokenizer,
+        temperature=args.temperature,
     )
 
     print(f"\nPredicted next token: {token_text!r} (ID: {token_id})")
@@ -133,20 +164,22 @@ def main():
     print("TEXT GENERATION (Optimized with KV Cache)")
     print("=" * 80)
 
-    prompt = "def sum_list(nums: List[int]"
+    prompt = args.prompt if args.prompt else "def sum_list(nums: List[int]"
     print(f"\nPrompt: {prompt!r}")
-    print("Generating 100 tokens with temperature=0.5, top_k=50")
+    print(
+        f"Generating {args.max_tokens} tokens with temperature={args.temperature}, top_k={args.top_k}"
+    )
 
     # Timed generation with KV cache
-    print("\n[Generating with KV cache...]")
+    print("\n[Generating...]")
     start_time = time.time()
     generated = generate_text(
         lightning_module,
-        tokenizer_path,
+        args.tokenizer,
         prompt,
-        max_tokens=100,
-        temperature=0.5,
-        top_k=50,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+        top_k=args.top_k,
     )
     generation_time = time.time() - start_time
 
@@ -155,39 +188,7 @@ def main():
     print(generated)
     print("-" * 80)
     print(f"\n✓ Generation completed in {generation_time:.3f}s")
-    print(f"  Tokens/second: {100 / generation_time:.1f}")
-
-    print("\n" + "=" * 80)
-    print("TEXT GENERATION (Step-by-Step Token Prediction)")
-    print("=" * 80)
-
-    prompt = "def sum_list(nums: List[int]"
-    print(f"\nPrompt: {prompt!r}")
-    print("Generating 50 tokens step by step with temperature=0.5, top_k=50\n")
-
-    max_steps = 50
-    generated_text = prompt
-
-    for step in range(max_steps):
-        token_id, token_text, top_10 = lightning_module.generate_once(
-            prompt=generated_text,
-            tokenizer_path=tokenizer_path,
-            temperature=0.5,
-            top_k=50,
-        )
-
-        generated_text += token_text
-
-        print(f"Step {step + 1:02d}: Token: {token_text!r} (ID: {token_id})")
-        print("  Top 5 likely tokens:")
-        for i, (tok_str, prob) in enumerate(list(top_10.items())[:5], 1):
-            print(f"    {i}. {tok_str!r:10s} {prob * 100:6.2f}%")
-        print("-" * 50)
-
-    print("\nGenerated text:")
-    print("-" * 80)
-    print(generated_text)
-    print("-" * 80)
+    print(f"  Tokens/second: {args.max_tokens / generation_time:.1f}")
 
 
 if __name__ == "__main__":
