@@ -19,7 +19,7 @@ tokenize:
   tok_file: "out/tokenize/tok.bin"
 
 data:
-  split_ratio: 0.9
+  split_ratio: 0.99
   seq_length: 256
   max_tokens: 0
   num_workers: 8

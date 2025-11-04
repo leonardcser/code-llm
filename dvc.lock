@@ -84,56 +84,58 @@ stages:
     deps:
     - path: out/tokenize
       hash: md5
-      md5: bb48e703288bc786d2816803581eab25.dir
-      size: 827690046
-      nfiles: 2
-    - path: src/dataloaders/py150.py
+      md5: 2e65bce054cb499fc7aa433e08e93711.dir
+      size: 10751383763
+      nfiles: 12
+    - path: src/dataloaders/token_dataloader.py
       hash: md5
-      md5: 0cb9c3ecbed9fd36b4586d114b6942e0
-      size: 7779
-    - path: src/dataloaders/py150_dataloader.py
+      md5: eb3d2bfb850c82f33cb0c8192f767e32
+      size: 13755
+    - path: src/dataloaders/token_datamodule.py
       hash: md5
-      md5: 4cc60f04ffe920577911675367972a52
-      size: 8909
+      md5: b3b7202bb562d39ddddb6e55fdecd333
+      size: 7937
     - path: src/models/qwen3.py
       hash: md5
-      md5: 0a5055337e10ae5730fbba4da1ffdcd1
-      size: 14070
+      md5: 78da8bc156449d3aa63cb52e1a7ee0c3
+      size: 14115
     - path: src/train.py
       hash: md5
-      md5: e3e69fce8dd1222b7bc5999631ee6921
-      size: 8917
+      md5: 7755a6ba951b23fd5df210d60877d40a
+      size: 8951
     - path: src/trainers/trainer.py
       hash: md5
-      md5: b27b12110a5d50246bef81acb3381afe
-      size: 19386
+      md5: 2a28aa60aeb22603b161b343db1170e7
+      size: 19407
     params:
       params.yaml:
-        data.bos_token_id: 30256
-        data.eos_token_id: 30257
+        data.bos_token_id: 35256
+        data.dataset_dir: out/tokenize/chunks
+        data.eos_token_id: 35257
         data.max_tokens: 0
         data.num_workers: 8
-        data.pad_token_id: 30258
+        data.pad_token_id: 35258
         data.seq_length: 256
+        data.split_ratio: 0.99
         model:
           hidden_size: 512
-          num_hidden_layers: 8
+          num_hidden_layers: 10
           num_attention_heads: 32
-          num_key_value_heads: 16
-          intermediate_size: 2048
+          num_key_value_heads: 2
+          intermediate_size: 2024
           max_position_embeddings: 512
           rope_theta: 10000.0
           attention_dropout: 0.1
           rms_norm_eps: 1e-06
           use_sliding_window: false
           sliding_window: 4096
-        tokenize.dataset_file: out/tokenize/dataset.bin
+        tokenize.dataset_dir: out/tokenize/chunks
         tokenize.tok_file: out/tokenize/tok.bin
-        tokenize.vocab_size: 30260
+        tokenize.vocab_size: 35263
         training:
           prefix: qwen3
           batch_size: 32
-          epochs: 10
+          epochs: 5
           lr: 0.0001
           weight_decay: 0.1
           grad_clip: 1.0
@@ -143,7 +145,7 @@ stages:
           devices: 1
           strategy: auto
           seed: 42
-          warmup_steps: 3000
+          warmup_steps: 5000
           scheduler_t_max_steps:
           log_every_n_steps: 100
           val_every_n_steps: 5000
@@ -152,18 +154,18 @@ stages:
     outs:
     - path: out/train/checkpoints/best.ckpt
       hash: md5
-      md5: 592687648122529905d51402a91da866
-      size: 1278051751
+      md5: 9799630d1b9a05d63cceb8fe6f6ea7d0
+      size: 1341455351
     - path: out/train/checkpoints/latest.ckpt
       hash: md5
-      md5: 33fbb4c284288dc2c8bea75139f9d90e
-      size: 1278051751
+      md5: 9799630d1b9a05d63cceb8fe6f6ea7d0
+      size: 1341455351
     - path: out/train/checkpoints/metrics.json
       hash: md5
-      md5: 92e17eb4667b4b3e7d666882c3c284cf
-      size: 204
+      md5: 8a80554c91d9fca8acb82f023de02f11
+      size: 3
     - path: out/train/logs
       hash: md5
-      md5: b8f87f22eee793e34a27f5d0492e2e19.dir
-      size: 236405
+      md5: 4393757035b8cdea1ab037dc777bd0c3.dir
+      size: 748623
       nfiles: 3
