@@ -50,3 +50,19 @@ stages:
     metrics:
       - out/train/checkpoints/metrics.json:
           cache: false
+
+  export:
+    cmd: uv run python src/export.py
+    deps:
+      - out/train/checkpoints/best.ckpt
+      - src/export.py
+      - src/models/qwen3.py
+    params:
+      - tokenize.vocab_size
+      - tokenize.tok_file
+      - tokenize.bos_token
+      - tokenize.eos_token
+      - tokenize.pad_token
+      - training.save_dir
+    outs:
+      - out/export

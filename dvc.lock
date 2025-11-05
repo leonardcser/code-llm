@@ -169,3 +169,32 @@ stages:
       md5: 4393757035b8cdea1ab037dc777bd0c3.dir
       size: 748623
       nfiles: 3
+  export:
+    cmd: uv run python src/export.py
+    deps:
+    - path: out/train/checkpoints/best.ckpt
+      hash: md5
+      md5: 9799630d1b9a05d63cceb8fe6f6ea7d0
+      size: 1341455351
+    - path: src/export.py
+      hash: md5
+      md5: 02c05e45817ebba881397a31f528a379
+      size: 4194
+    - path: src/models/qwen3.py
+      hash: md5
+      md5: 78da8bc156449d3aa63cb52e1a7ee0c3
+      size: 14115
+    params:
+      params.yaml:
+        tokenize.bos_token: <|startoftext|>
+        tokenize.eos_token: <|endoftext|>
+        tokenize.pad_token: <|pad|>
+        tokenize.tok_file: out/tokenize/tok.bin
+        tokenize.vocab_size: 35263
+        training.save_dir: out/train/checkpoints
+    outs:
+    - path: out/export
+      hash: md5
+      md5: 724d985afee85aff5b65de502e51cdab.dir
+      size: 447117099
+      nfiles: 5

@@ -19,4 +19,6 @@ dependencies = [
     "datasets>=4.3.0",
     "pyarrow>=22.0.0",
     "smart-open[s3]>=7.4.2",
+    "uvicorn>=0.38.0",
+    "fastapi>=0.121.0",
 ]
