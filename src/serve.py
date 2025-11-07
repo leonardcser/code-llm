@@ -151,8 +151,7 @@ async def completions_proxy(request: Request):
     else:
         raise HTTPException(status_code=400, detail="Invalid 'prompt' type")
 
-    # Replace prompt with token IDs
-    body.pop("prompt")
+    # Add token IDs (keep prompt for vllm validation)
     body["prompt_token_ids"] = prompt_token_ids
 
     # Check if streaming is requested
