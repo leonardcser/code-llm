@@ -1,198 +1,407 @@
-"""Reverse proxy server for vllm with custom tokenizer."""
+"""OpenAI-compatible API server for code completion."""
 
-import subprocess
-import sys
+import argparse
+import json
 import time
+import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, AsyncGenerator
 
-import httpx
-import tokenizer as tok
+import torch
 import uvicorn
-import yaml
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from transformers import Qwen3ForCausalLM
 
-# Load configuration from params.yaml
-with open("params.yaml") as f:
-    params = yaml.safe_load(f)
-
-# Configuration
-VLLM_HOST = "127.0.0.1"
-VLLM_PORT = 8001
-PROXY_HOST = "0.0.0.0"
-PROXY_PORT = 8000
-MODEL_PATH = "out/export"
-TOKENIZER_PATH = params["tokenize"]["tok_file"]
-BOS_TOKEN_ID = params["data"]["bos_token_id"]
-
-# Global tokenizer instance
-tokenizer = None
-vllm_process = None
-
-app = FastAPI(title="Code LLM Proxy Server")
+# Try to import the tokenizer module
+try:
+    import tokenizer as tok
+except ImportError:
+    tok = None
 
 
-def load_tokenizer():
-    """Load the custom tokenizer."""
-    global tokenizer
-    if tokenizer is None:
-        print(f"Loading tokenizer from {TOKENIZER_PATH}...")
-        tokenizer = tok.load(TOKENIZER_PATH)
-        print("Tokenizer loaded successfully")
-    return tokenizer
+# Global model storage
+model_state = {"model": None, "tokenizer": None, "config": None, "eos_token": None}
 
 
-def start_vllm_server():
-    """Start vllm server as subprocess."""
-    global vllm_process
+class CompletionRequest(BaseModel):
+    """OpenAI Completion API request."""
 
-    cmd = [
-        "uv",
-        "run",
-        "vllm",
-        "serve",
-        MODEL_PATH,
-        "--served-model-name",
-        "codellm",
-        "--skip-tokenizer-init",
-        "--host",
-        VLLM_HOST,
-        "--port",
-        str(VLLM_PORT),
-        "--enable-prefix-caching",
-        "--enable-chunked-prefill",
-        "--quantization",
-        "fp8",
-        "--speculative-config.method",
-        "ngram",
-        "--speculative-config.num_speculative_tokens",
-        "8",
-        "--speculative-config.prompt_lookup_max",
-        "4",
-        "--speculative-config.prompt_lookup_min",
-        "2",
-    ]
+    model: str = "code-llm"
+    prompt: str | list[str]
+    temperature: float = 0.8
+    max_tokens: int = 100
+    top_k: int = 50
+    stop: list[str] | None = None
+    n: int = 1
+    echo: bool = False
+    uncertainty_threshold: float = 0  # Min confidence for accepting completions
 
-    print(f"Starting vllm server: {' '.join(cmd)}")
-    vllm_process = subprocess.Popen(
-        cmd,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
+
+class ModelInfo(BaseModel):
+    """Model information response."""
+
+    id: str
+    object: str = "model"
+    created: int
+    owned_by: str = "user"
+
+
+class ModelListResponse(BaseModel):
+    """List models response."""
+
+    object: str = "list"
+    data: list[ModelInfo]
+
+
+def encode_text(text: str, tokenizer) -> list[int]:
+    """Encode text using the custom tokenizer.
+
+    Args:
+        text: Input text
+        tokenizer: Loaded tokenizer
+
+    Returns:
+        List of token IDs
+    """
+    if tok is None:
+        raise RuntimeError("Tokenizer module not available")
+
+    tokens = tok.encode(text, tokenizer)
+    # Prepend BOS token
+    bos_token_id = tokenizer.bos_token_id
+    return [bos_token_id] + tokens
+
+
+def decode_tokens(token_ids: list[int], tokenizer) -> str:
+    """Decode tokens using the custom tokenizer.
+
+    Args:
+        token_ids: List of token IDs
+        tokenizer: Loaded tokenizer
+
+    Returns:
+        Decoded text
+    """
+    if tok is None:
+        raise RuntimeError("Tokenizer module not available")
+
+    return tok.decode(token_ids, tokenizer)
+
+
+@torch.no_grad()
+def generate_completion(
+    prompt: str,
+    max_tokens: int = 100,
+    temperature: float = 0.8,
+    top_k: int = 50,
+    stop: list[str] | None = None,
+    uncertainty_threshold: float = 0.4,
+) -> tuple[str, int, int]:
+    """Generate code completion.
+
+    Args:
+        prompt: Input code prompt
+        max_tokens: Maximum tokens to generate
+        temperature: Sampling temperature
+        top_k: Top-k sampling
+        stop: Stop sequences
+        uncertainty_threshold: Minimum confidence threshold (0-1). If max probability
+            falls below this for any token, return empty completion.
+
+    Returns:
+        Tuple of (generated_text, prompt_tokens, completion_tokens)
+    """
+    model = model_state["model"]
+    tokenizer = model_state["tokenizer"]
+
+    if model is None or tokenizer is None:
+        raise RuntimeError("Model not loaded")
+
+    # Encode prompt
+    input_ids = encode_text(prompt, tokenizer)
+    prompt_tokens = len(input_ids)
+
+    input_tensor = torch.tensor([input_ids], dtype=torch.long, device=model.device)
+    attention_mask = torch.ones_like(input_tensor)
+
+    # Start timing
+    start_time = time.time()
+
+    # Generate with output scores to check confidence
+    outputs = model.generate(
+        input_tensor,
+        attention_mask=attention_mask,
+        max_new_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        do_sample=temperature > 0,
+        use_cache=True,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
+        return_dict_in_generate=True,
+        output_scores=True,
     )
 
-    # Wait for server to be ready
-    print("Waiting for vllm server to start...")
-    for i in range(60):  # Wait up to 60 seconds
-        try:
-            response = httpx.get(f"http://{VLLM_HOST}:{VLLM_PORT}/health")
-            if response.status_code == 200:
-                print("vllm server is ready!")
-                return
-        except httpx.ConnectError:
-            pass
-        time.sleep(1)
+    # Calculate generation time
+    generation_time = time.time() - start_time
 
-    raise RuntimeError("vllm server failed to start within 60 seconds")
+    # Check uncertainty - examine the confidence of generated tokens
+    generated_ids = outputs.sequences[0].tolist()
+
+    # Check if we have scores (only for newly generated tokens)
+    if hasattr(outputs, "scores") and len(outputs.scores) > 0:
+        min_confidence = 1.0
+        for score in outputs.scores:
+            # Get probabilities for the batch
+            probs = torch.softmax(score[0], dim=-1)
+            max_prob = probs.max().item()
+            min_confidence = min(min_confidence, max_prob)
+
+        # If any token has low confidence, return empty completion
+        if min_confidence < uncertainty_threshold:
+            print(
+                f"Low confidence detected ({min_confidence:.3f} < {uncertainty_threshold:.3f}), returning empty completion"
+            )
+            return "", prompt_tokens, 0
+
+    # Decode
+    full_text = decode_tokens(generated_ids, tokenizer)
+
+    # Extract only the completion (remove prompt)
+    prompt_text = decode_tokens(input_ids, tokenizer)
+    completion = full_text[len(prompt_text) :]
+
+    # Get cached EOS token string
+    eos_text = model_state["eos_token"]
+
+    # Ensure we end with EOS token if it's not already there
+    if eos_text and not completion.endswith(eos_text):
+        # If we hit max_tokens without EOS, append it
+        completion += eos_text
+
+    # Handle stop sequences (before EOS removal)
+    if stop:
+        for stop_seq in stop:
+            if stop_seq in completion:
+                completion = completion[: completion.index(stop_seq)]
+                break
+
+    # Remove the EOS token from the final output (it's implicit)
+    if eos_text and completion.endswith(eos_text):
+        completion = completion[: -len(eos_text)]
+
+    completion_tokens = len(generated_ids) - prompt_tokens
+
+    # Calculate and log tokens per second
+    tokens_per_second = (
+        completion_tokens / generation_time if generation_time > 0 else 0
+    )
+    print(
+        f"Generated {completion_tokens} tokens in {generation_time:.2f}s ({tokens_per_second:.2f} tok/s)"
+    )
+
+    return completion, prompt_tokens, completion_tokens
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize tokenizer and start vllm server on startup."""
-    load_tokenizer()
-    start_vllm_server()
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Load model on startup, cleanup on shutdown."""
+    # Load model
+    model_dir = app.state.model_dir
+    print(f"Loading model from {model_dir}...")
+
+    # Load HuggingFace model
+    model = Qwen3ForCausalLM.from_pretrained(model_dir, device_map="auto")
+
+    # Move to GPU if available
+    model.eval()
+
+    # Load tokenizer info
+    tokenizer_info_path = Path(model_dir) / "tokenizer_info.json"
+    with open(tokenizer_info_path) as f:
+        tokenizer_info = json.load(f)
+
+    # Load custom tokenizer
+    tokenizer_path = tokenizer_info["tokenizer_path"]
+    print(f"Loading tokenizer from {tokenizer_path}...")
+
+    if tok is None:
+        raise RuntimeError(
+            "Tokenizer module not available. Please ensure tokenizer is built."
+        )
+
+    tokenizer = tok.load(tokenizer_path)
+    print("Tokenizer loaded")
+
+    # Load export metadata
+    metadata_path = Path(model_dir) / "export_metadata.json"
+    with open(metadata_path) as f:
+        config = json.load(f)
+
+    # Cache EOS token string from special_tokens map
+    eos_token = None
+    for token_str, special_token in tokenizer.special_tokens.items():
+        if special_token.id == tokenizer.eos_token_id:
+            eos_token = token_str
+            break
+
+    # Store in global state
+    model_state["model"] = model
+    model_state["tokenizer"] = tokenizer
+    model_state["config"] = config
+    model_state["eos_token"] = eos_token
+
+    print("\n" + "=" * 80)
+    print("Code completion server ready!")
+    print("=" * 80)
+
+    yield
+
+    # Cleanup
+    model_state["model"] = None
+    model_state["tokenizer"] = None
+    model_state["config"] = None
+    model_state["eos_token"] = None
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup vllm process on shutdown."""
-    global vllm_process
-    if vllm_process:
-        print("Shutting down vllm server...")
-        vllm_process.terminate()
-        try:
-            vllm_process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            vllm_process.kill()
-            vllm_process.wait()
+# Create FastAPI app
+app = FastAPI(
+    title="Code Completion API",
+    description="OpenAI-compatible API for code completion",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint."""
+    return {
+        "message": "Code Completion API Server",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+    }
+
+
+@app.get("/v1/models")
+async def list_models() -> ModelListResponse:
+    """List available models (OpenAI-compatible)."""
+    config = model_state["config"]
+    if config is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    model_id = "code-llm"
+    return ModelListResponse(
+        data=[
+            ModelInfo(
+                id=model_id,
+                created=int(time.time()),
+            )
+        ]
+    )
 
 
 @app.post("/v1/completions")
-async def completions_proxy(request: Request):
-    """Proxy completions requests with custom tokenizer."""
-    global tokenizer
+async def create_completion(request: CompletionRequest) -> dict[str, Any]:
+    """Create code completion (OpenAI-compatible)."""
+    if model_state["model"] is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
 
-    # Parse request body
-    body = await request.json()
+    # Handle single prompt or list of prompts
+    prompts = [request.prompt] if isinstance(request.prompt, str) else request.prompt
 
-    # Extract prompt
-    prompt = body.get("prompt")
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Missing 'prompt' field")
+    # Generate completions for all prompts
+    choices = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
 
-    # Encode prompt with custom tokenizer
-    if isinstance(prompt, str):
-        token_ids = tok.encode(prompt, tokenizer)
-        # Prepend BOS token
-        token_ids = [BOS_TOKEN_ID] + token_ids
-        prompt_token_ids = [token_ids]
-    elif isinstance(prompt, list):
-        # Handle batch of prompts
-        prompt_token_ids = []
-        for p in prompt:
-            token_ids = tok.encode(p, tokenizer)
-            token_ids = [BOS_TOKEN_ID] + token_ids
-            prompt_token_ids.append(token_ids)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid 'prompt' type")
+    for idx, prompt in enumerate(prompts):
+        try:
+            completion_text, prompt_tokens, completion_tokens = generate_completion(
+                prompt=prompt,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                stop=request.stop,
+                uncertainty_threshold=request.uncertainty_threshold,
+            )
 
-    # Add token IDs (keep prompt for vllm validation)
-    body["prompt_token_ids"] = prompt_token_ids
+            # Include prompt in output if echo=True
+            output_text = prompt + completion_text if request.echo else completion_text
 
-    # Check if streaming is requested
-    stream = body.get("stream", False)
+            choices.append(
+                {
+                    "index": idx,
+                    "text": output_text,
+                    "logprobs": None,
+                    "finish_reason": "stop",
+                }
+            )
 
-    # Forward request to vllm
-    vllm_url = f"http://{VLLM_HOST}:{VLLM_PORT}/v1/completions"
+            total_prompt_tokens += prompt_tokens
+            total_completion_tokens += completion_tokens
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        if stream:
-            # Handle streaming response
-            async def stream_generator():
-                async with client.stream("POST", vllm_url, json=body) as response:
-                    async for chunk in response.aiter_text():
-                        yield chunk
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-            return StreamingResponse(stream_generator(), media_type="text/event-stream")
-        else:
-            # Handle non-streaming response
-            response = await client.post(vllm_url, json=body)
+    # Build response
+    response = {
+        "id": f"cmpl-{uuid.uuid4().hex[:8]}",
+        "object": "text_completion",
+        "created": int(time.time()),
+        "model": request.model,
+        "choices": choices,
+        "usage": {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+        },
+    }
 
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code, detail=response.text
-                )
+    return response
 
-            # Return the response as-is (vllm returns text in OpenAI format)
-            return JSONResponse(content=response.json())
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Health check endpoint."""
+    if model_state["model"] is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    return {"status": "healthy"}
 
 
 def main():
-    """Run the proxy server."""
-    print(f"Starting proxy server on {PROXY_HOST}:{PROXY_PORT}")
-    print(f"Proxying to vllm server at {VLLM_HOST}:{VLLM_PORT}")
-    print(f"Model: {MODEL_PATH}")
-    print(f"Tokenizer: {TOKENIZER_PATH}")
+    """Start the API server."""
+    parser = argparse.ArgumentParser(description="Start code completion API server")
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default="out/export",
+        help="Directory containing exported model",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind to",
+    )
+    args = parser.parse_args()
 
+    # Store model directory in app state
+    app.state.model_dir = args.model_dir
+
+    # Start server
     uvicorn.run(
         app,
-        host=PROXY_HOST,
-        port=PROXY_PORT,
+        host=args.host,
+        port=args.port,
         log_level="info",
     )
 

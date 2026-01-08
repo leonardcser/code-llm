@@ -76,9 +76,9 @@ stages:
     outs:
     - path: out/tokenize
       hash: md5
-      md5: 7cf9c81e19c2fed79e239bb6fcc993a7.dir
-      size: 10754551901
-      nfiles: 15
+      md5: 2e65bce054cb499fc7aa433e08e93711.dir
+      size: 10751383763
+      nfiles: 12
   train:
     cmd: uv run python src/train.py
     deps:
@@ -195,6 +195,6 @@ stages:
     outs:
     - path: out/export
       hash: md5
-      md5: a08063a06089a763bc19fad3df2a5777.dir
-      size: 450284968
-      nfiles: 7
+      md5: 724d985afee85aff5b65de502e51cdab.dir
+      size: 447117099
+      nfiles: 5
