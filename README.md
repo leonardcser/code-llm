@@ -1,9 +1,31 @@
 # CodeLLM
 
-Training a coding large language model from scratch using a custom c++ tokenizer
-and torch.
+Training a coding large language model from scratch using a custom C++ tokenizer
+and PyTorch.
 
-This project is a work in progress. See the updates in
+## Example Generation
+
+Given the prompt `def fib(`, the model generates:
+
+```python
+def fib( n ):
+    if n == 1:
+        return 1
+    else:
+        return fib( n-1 ) + fib( n-2 )
+```
+
+*Generated in 0.2s at 496 tokens/second on NVIDIA RTX 5070 Ti*
+
+## Training Progress
+
+![Perplexity over training steps](docs/perplexity.png)
+
+*Trained for 2 days on NVIDIA RTX 5070 Ti on Python code*
+
+---
+
+This project is a work in progress. See the detailed journal at
 [docs/journal.pdf](docs/journal.pdf)
 
 ## Getting Started
